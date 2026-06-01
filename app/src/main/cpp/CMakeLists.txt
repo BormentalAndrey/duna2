@@ -17,7 +17,7 @@ set(OUR_SRC emulator-bridge.cpp genesis-core.cpp)
 # Собрать общую библиотеку
 add_library(dune2emu SHARED ${ALL_C_FILES} ${OUR_SRC})
 
-# Include пути (Добавлен путь к dr_libs и внутреннему zlib подсистемы CHD)
+# Include пути (Добавлен точный путь до dr_libs из папки libretro)
 target_include_directories(dune2emu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx
@@ -39,6 +39,7 @@ target_include_directories(dune2emu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/libretro-common/include
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/deps/zlib-1.2.11
+    ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/deps/libchdr/include
 )
 
 # Глобальные макроопределения компилятора
