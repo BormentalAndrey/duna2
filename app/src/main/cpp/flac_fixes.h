@@ -19,13 +19,18 @@
 #define FLAC__HAS_OGG 0
 #endif
 
-// 4. Предыдущие фиксы для вычисления минимума/максимума
+// 4. Фиксы для вычисления минимума/максимума
 #ifndef flac_min
 #define flac_min(a,b) ((a)<(b)?(a):(b))
 #endif
 
 #ifndef flac_max
 #define flac_max(a,b) ((a)>(b)?(a):(b))
+#endif
+
+// 5. Фикс для LZMA (LzmaEnc.c): переключаем в Single-Threaded режим, убирая нужду в LzFindMt.h
+#ifndef _7ZIP_ST
+#define _7ZIP_ST
 #endif
 
 #endif // FLAC_FIXES_H
