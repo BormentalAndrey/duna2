@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Dune 2 Emulator</string>
+    <string name="load_rom">Load ROM</string>
+    <string name="save_state">Save State</string>
+    <string name="load_state">Load State</string>
+    <string name="no_rom_found">No ROM found. Please select Dune 2 ROM file.</string>
+    <string name="select_rom">Select ROM File</string>
+</resources>
