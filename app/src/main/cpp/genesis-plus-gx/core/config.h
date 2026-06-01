@@ -6,4 +6,3 @@
 #define ALIGN_LONG 1
 #define USE_16BPP_RENDERING 1
 #endif
-EOF
