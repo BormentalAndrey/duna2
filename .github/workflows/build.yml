@@ -2,9 +2,9 @@ name: Build Dune 2 Emulator APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
@@ -27,37 +27,32 @@ jobs:
         api-level: 34
         build-tools: 34.0.0
     
-    - name: Install NDK
+    - name: Install NDK and CMake
       run: |
         yes | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --licenses
-        ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "ndk;25.2.9519653" "cmake;3.22.1"
+        ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "ndk;25.2.9519653" "cmake;3.22.1" "platforms;android-34"
     
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
-      with:
-        gradle-version: 8.4
-    
-    - name: Create Gradle Wrapper
+    - name: Create local.properties
       run: |
-        gradle wrapper --gradle-version 8.4
-        chmod +x gradlew
+        echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+        echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> local.properties
+        echo "cmake.dir=$ANDROID_SDK_ROOT/cmake/3.22.1" >> local.properties
     
     - name: Create project structure
       run: |
-        # Создаем все необходимые директории
         mkdir -p app/src/main/assets
         mkdir -p app/src/main/cpp
         mkdir -p app/src/main/java/com/dune2emu
         mkdir -p app/src/main/res/values
         mkdir -p app/src/main/res/drawable
-        
-        # Создаем файл .gitkeep
         touch app/src/main/assets/.gitkeep
     
     - name: Download Genesis Plus GX Core
       run: |
         cd app/src/main/cpp
-        git clone --depth 1 https://github.com/libretro/Genesis-Plus-GX.git genesis-plus-gx || echo "Core already exists or download failed"
+        if [ ! -d "genesis-plus-gx" ]; then
+          git clone --depth 1 https://github.com/libretro/Genesis-Plus-GX.git genesis-plus-gx
+        fi
     
     - name: Cache Gradle packages
       uses: actions/cache@v4
@@ -69,29 +64,27 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-gradle-
     
-    - name: Create local.properties
+    - name: Create Gradle Wrapper
       run: |
-        echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
-        echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> local.properties
+        gradle wrapper --gradle-version 8.4 --no-daemon
+        chmod +x gradlew
     
     - name: Build Debug APK
-      run: ./gradlew assembleDebug
+      run: |
+        ./gradlew assembleDebug --no-daemon --stacktrace
     
-    - name: Build Release APK
-      run: ./gradlew assembleRelease
-      continue-on-error: true
-    
-    - name: Upload Debug APK
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: Dune2Emulator-Debug
+        name: Dune2Emulator-APK
         path: app/build/outputs/apk/debug/app-debug.apk
-        retention-days: 7
+        retention-days: 30
     
-    - name: Upload Release APK (if exists)
+    - name: Upload logs on failure
+      if: failure()
       uses: actions/upload-artifact@v4
-      if: success() || failure()
       with:
-        name: Dune2Emulator-Release
-        path: app/build/outputs/apk/release/app-release-unsigned.apk
-        retention-days: 7
+        name: build-logs
+        path: |
+          app/build/reports/
+          app/build/outputs/logs/
