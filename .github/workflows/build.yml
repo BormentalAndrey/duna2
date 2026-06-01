@@ -36,8 +36,9 @@ jobs:
       run: |
         echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
         echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/27.0.12077973" >> local.properties
+        echo "cmake.dir=$ANDROID_SDK_ROOT/cmake/3.22.1" >> local.properties
     
-    - name: Create project directories
+    - name: Create project structure
       run: |
         mkdir -p app/src/main/assets
         mkdir -p app/src/main/cpp
@@ -55,43 +56,17 @@ jobs:
     
     - name: Setup Gradle Wrapper
       run: |
-        # Удаляем старые файлы если есть
-        rm -f gradlew gradlew.bat
-        rm -rf gradle/wrapper
-        
-        # Создаем директорию
-        mkdir -p gradle/wrapper
-        
-        # Скачиваем gradle-wrapper.jar
-        curl -L -o gradle/wrapper/gradle-wrapper.jar \
-          https://github.com/gradle/gradle/raw/v8.11.1/gradle/wrapper/gradle-wrapper.jar
-        
-        # Создаем gradle-wrapper.properties
-        cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
-distributionBase=GRADLE_USER_HOME
-distributionPath=wrapper/dists
-distributionUrl=https\://services.gradle.org/distributions/gradle-8.11.1-bin.zip
-networkTimeout=10000
-validateDistributionUrl=true
-zipStoreBase=GRADLE_USER_HOME
-zipStorePath=wrapper/dists
-EOF
-        
-        # Скачиваем gradlew
-        curl -L -o gradlew \
-          https://raw.githubusercontent.com/gradle/gradle/v8.11.1/gradlew
-        
-        # Делаем исполняемым
+        # Проверяем наличие gradlew
+        if [ ! -f "gradlew" ]; then
+          # Создаем gradlew с помощью системного gradle
+          gradle wrapper --gradle-version 8.11.1 --no-daemon
+        fi
+        # Устанавливаем права на выполнение
         chmod +x gradlew
-        
-        # Проверяем что все на месте
-        echo "=== Проверка файлов Gradle Wrapper ==="
+        # Проверяем
         ls -la gradlew
-        ls -la gradle/wrapper/
-        echo "=== Содержимое gradle-wrapper.properties ==="
-        cat gradle/wrapper/gradle-wrapper.properties
     
-    - name: Cache Gradle
+    - name: Cache Gradle packages
       uses: actions/cache@v4
       with:
         path: |
@@ -101,9 +76,10 @@ EOF
         restore-keys: |
           ${{ runner.os }}-gradle-
     
-    - name: Build APK
+    - name: Build Debug APK
       run: |
-        ./gradlew assembleDebug --no-daemon --stacktrace
+        chmod +x gradlew
+        ./gradlew assembleDebug --no-daemon --stacktrace --warning-mode all
     
     - name: Upload APK
       uses: actions/upload-artifact@v4
@@ -112,11 +88,12 @@ EOF
         path: app/build/outputs/apk/debug/app-debug.apk
         retention-days: 30
     
-    - name: Upload logs if failed
+    - name: Upload logs on failure
       if: failure()
       uses: actions/upload-artifact@v4
       with:
         name: build-logs
         path: |
           app/build/reports/
+          app/build/outputs/logs/
           build/reports/
