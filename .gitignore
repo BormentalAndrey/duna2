@@ -28,5 +28,7 @@ app/src/main/assets/Dune*.bin
 *.keystore
 
 # Allow Genesis Plus GX
+
+# Allow genesis-plus-gx
 !app/src/main/cpp/genesis-plus-gx/
 !app/src/main/cpp/genesis-plus-gx/**
