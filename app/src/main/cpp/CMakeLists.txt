@@ -17,7 +17,7 @@ set(OUR_SRC emulator-bridge.cpp genesis-core.cpp)
 # Собрать общую библиотеку
 add_library(dune2emu SHARED ${ALL_C_FILES} ${OUR_SRC})
 
-#Include пути (Занесены все подпапки ядра, чтобы компилятор видел scd.h, svp.h и т.д.)
+# Include пути (Исправлен путь к кодеку minimp3)
 target_include_directories(dune2emu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx
@@ -25,6 +25,7 @@ target_include_directories(dune2emu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/m68k
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/z80
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/sound
+    ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/sound/minimp3
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/cart_hw
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/cart_hw/svp
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/cd_hw
@@ -48,7 +49,7 @@ target_compile_definitions(dune2emu PRIVATE
     HAVE_STREAMS
 )
 
-# Флаги оптимизации сборки (-w скрывает предупреждения, чтобы не засорять логи)
+# Флаги оптимизации сборки (-w скрывает предупреждения)
 target_compile_options(dune2emu PRIVATE -O3 -fomit-frame-pointer -w)
 
 # Линковка системных библиотек Android
