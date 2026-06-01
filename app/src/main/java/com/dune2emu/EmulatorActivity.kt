@@ -1,46 +1,80 @@
 package com.dune2emu
 
-import android.view.Surface
+import android.os.Bundle
+import android.view.SurfaceHolder
+import android.view.SurfaceView
+import android.view.WindowManager
+import android.widget.FrameLayout
+import androidx.appcompat.app.AppCompatActivity
+import java.io.File
+import java.io.FileOutputStream
 
-class EmulatorCore {
-    private val bridge = RetroBridge()
-    private var isRunning = false
+class EmulatorActivity : AppCompatActivity(), SurfaceHolder.Callback {
     
-    fun init(romPath: String, saveDir: String): Boolean {
-        return bridge.initEmulator(romPath, saveDir)
+    private lateinit var emulator: EmulatorCore
+    private lateinit var surfaceView: SurfaceView
+    private lateinit var gamepad: GamepadView
+    
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        
+        window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        supportActionBar?.hide()
+        
+        // Создание layout
+        val layout = FrameLayout(this)
+        
+        surfaceView = SurfaceView(this)
+        surfaceView.holder.addCallback(this)
+        layout.addView(surfaceView)
+        
+        gamepad = GamepadView(this)
+        layout.addView(gamepad)
+        
+        setContentView(layout)
+        
+        emulator = EmulatorCore()
     }
     
-    fun setSurface(surface: Surface): Boolean {
-        return bridge.setSurface(surface)
-    }
-    
-    fun start() {
-        if (!isRunning) {
-            bridge.startEmulation()
-            isRunning = true
+    private fun loadROM() {
+        try {
+            // Копирование ROM из assets
+            val romFile = File(filesDir, "dune2.bin")
+            if (!romFile.exists()) {
+                assets.open("dune2.bin").use { input ->
+                    FileOutputStream(romFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            }
+            
+            // Создание директории сохранений
+            val saveDir = File(filesDir, "saves").apply { mkdirs() }
+            
+            // Инициализация эмулятора
+            if (emulator.init(romFile.absolutePath, saveDir.absolutePath)) {
+                gamepad.setEmulator(emulator)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
     
-    fun stop() {
-        if (isRunning) {
-            bridge.stopEmulation()
-            isRunning = false
+    override fun surfaceCreated(holder: SurfaceHolder) {
+        if (emulator.setSurface(holder.surface)) {
+            loadROM()
+            emulator.start()
         }
     }
     
-    fun pressButton(player: Int, button: GenesisButton) {
-        bridge.setButtonState(player, button.code, true)
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
+    
+    override fun surfaceDestroyed(holder: SurfaceHolder) {
+        emulator.stop()
     }
     
-    fun releaseButton(player: Int, button: GenesisButton) {
-        bridge.setButtonState(player, button.code, false)
-    }
-    
-    fun saveState(slot: Int): Boolean = bridge.saveState(slot)
-    fun loadState(slot: Int): Boolean = bridge.loadState(slot)
-    
-    enum class GenesisButton(val code: Int) {
-        UP(0), DOWN(1), LEFT(2), RIGHT(3),
-        A(4), B(5), C(6), START(7), MODE(8)
+    override fun onDestroy() {
+        emulator.stop()
+        super.onDestroy()
     }
 }
