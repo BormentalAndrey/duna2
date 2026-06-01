@@ -17,7 +17,7 @@ set(OUR_SRC emulator-bridge.cpp genesis-core.cpp)
 # Собрать общую библиотеку
 add_library(dune2emu SHARED ${ALL_C_FILES} ${OUR_SRC})
 
-# Include пути (Добавлен точный путь к фильтрам изображения core/ntsc)
+# Include пути
 target_include_directories(dune2emu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx
@@ -43,7 +43,7 @@ target_include_directories(dune2emu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/deps/libchdr/include
 )
 
-# Глобальные макроопределения компилятора
+# Глобальные макроопределения компилятора (+ отключение ZSTD для libchdr)
 target_compile_definitions(dune2emu PRIVATE
     ANDROID
     __LIBRETRO__
@@ -54,6 +54,9 @@ target_compile_definitions(dune2emu PRIVATE
     USE_16BPP_RENDERING
     RARCH_INTERNAL
     HAVE_STREAMS
+    HAVE_CHD
+    HAVE_ZLIB
+    ZSTD_DISABLE
 )
 
 # Флаги оптимизации, принудительного инклюда фиксов и понижения строгости к старому Си-коду
