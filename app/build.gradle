@@ -12,7 +12,7 @@ android {
         minSdk 21
         targetSdk 34
         versionCode 1
-        versionName "1.0"
+        versionName "1.0.0"
         
         ndk {
             abiFilters 'armeabi-v7a', 'arm64-v8a'
@@ -20,8 +20,10 @@ android {
         
         externalNativeBuild {
             cmake {
-                cppFlags "-std=c++17 -O3 -DANDROID -D__LIBRETRO__"
-                arguments "-DANDROID_STL=c++_shared"
+                cppFlags "-std=c++17 -O3 -DANDROID -D__LIBRETRO__ -DLSB_FIRST -DALIGN_LONG"
+                arguments "-DANDROID_STL=c++_shared", 
+                          "-DANDROID_TOOLCHAIN=clang",
+                          "-DANDROID_PLATFORM=android-21"
             }
         }
     }
@@ -29,28 +31,48 @@ android {
     buildTypes {
         release {
             minifyEnabled true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            ndk {
+                debugSymbolLevel 'none'
+            }
+        }
+        debug {
+            debuggable true
+            jniDebuggable true
+            ndk {
+                debugSymbolLevel 'full'
+            }
         }
     }
     
     externalNativeBuild {
         cmake {
-            path "src/main/cpp/CMakeLists.txt"
-            version "3.22.1"
+            path file('src/main/cpp/CMakeLists.txt')
+            version '3.22.1'
         }
     }
     
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
     }
     
     kotlinOptions {
-        jvmTarget = '1.8'
+        jvmTarget = '11'
+    }
+    
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
+            assets.srcDirs = ['src/main/assets']
+        }
     }
 }
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'com.google.android.material:material:1.11.0'
 }
