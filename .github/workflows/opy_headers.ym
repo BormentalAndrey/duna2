@@ -1,0 +1,65 @@
+name: Copy Headers and Fix Config
+
+on:
+  workflow_dispatch:
+
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Copy headers and fix config.h
+      run: |
+        cd app/src/main/cpp/genesis-plus-gx
+        
+        # Исправить config.h
+        cat > core/config.h << 'EOF'
+#ifndef CONFIG_H
+#define CONFIG_H
+#define HAVE_INTTYPES 1
+#define HAVE_STDINT 1
+#define LSB_FIRST 1
+#define ALIGN_LONG 1
+#define USE_16BPP_RENDERING 1
+#endif
+EOF
+        echo "config.h fixed"
+        
+        # Скопировать unzip.h
+        cp sdl/unzip.h core/unzip.h
+        echo "unzip.h copied"
+        
+        # Скопировать error.h
+        cp sdl/error.h core/error.h
+        echo "error.h copied"
+        
+        # Скопировать fileio.h
+        cp sdl/fileio.h core/fileio.h
+        echo "fileio.h copied"
+        
+        # Скопировать zlib.h
+        cp libretro/libretro-common/include/compat/zlib.h core/zlib.h
+        echo "zlib.h copied"
+        
+        echo ""
+        echo "=== Проверка ==="
+        ls -la core/config.h core/unzip.h core/error.h core/fileio.h core/zlib.h
+    
+    - name: Commit and Push
+      run: |
+        git config user.name "github-actions"
+        git config user.email "github-actions@github.com"
+        git add app/src/main/cpp/genesis-plus-gx/core/config.h
+        git add app/src/main/cpp/genesis-plus-gx/core/unzip.h
+        git add app/src/main/cpp/genesis-plus-gx/core/error.h
+        git add app/src/main/cpp/genesis-plus-gx/core/fileio.h
+        git add app/src/main/cpp/genesis-plus-gx/core/zlib.h
+        git commit -m "Copy headers and fix config.h" || echo "Nothing to commit"
+        git push
