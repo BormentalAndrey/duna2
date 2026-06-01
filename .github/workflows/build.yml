@@ -1,73 +1,80 @@
-name: Clone Genesis Plus GX and Commit
+name: Build APK
 
 on:
   workflow_dispatch:
 
 jobs:
-  clone-and-commit:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+    
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+        java-version: '17'
+        distribution: 'temurin'
     
-    - name: Fix gitignore
-      run: |
-        # Удаляем строку игнорирующую genesis-plus-gx
-        if [ -f .gitignore ]; then
-          sed -i '/genesis-plus-gx/d' .gitignore
-          echo "Removed genesis-plus-gx from .gitignore"
-        fi
-        
-        # Добавляем исключение
-        echo "" >> .gitignore
-        echo "# Allow genesis-plus-gx" >> .gitignore
-        echo "!app/src/main/cpp/genesis-plus-gx/" >> .gitignore
-        echo "!app/src/main/cpp/genesis-plus-gx/**" >> .gitignore
-        
-        cat .gitignore | tail -10
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        api-level: 35
+        build-tools: 35.0.0
     
-    - name: Clone Genesis Plus GX
+    - name: Install NDK and CMake
       run: |
-        cd app/src/main/cpp
-        rm -rf genesis-plus-gx
-        git clone https://github.com/libretro/Genesis-Plus-GX.git genesis-plus-gx
-        
-        echo "=== Поиск заголовков ==="
-        find genesis-plus-gx -name "osd.h" -type f
-        find genesis-plus-gx -name "libretro.h" -type f
-        
-        echo "=== Копирование в core/ ==="
-        
-        OSD=$(find genesis-plus-gx -name "osd.h" -type f | head -1)
-        if [ -n "$OSD" ]; then
-          cp "$OSD" genesis-plus-gx/core/osd.h
-          echo "osd.h copied from: $OSD"
-        fi
-        
-        LIBRETRO=$(find genesis-plus-gx -name "libretro.h" -type f | head -1)
-        if [ -n "$LIBRETRO" ]; then
-          cp "$LIBRETRO" genesis-plus-gx/core/libretro.h
-          echo "libretro.h copied from: $LIBRETRO"
-        fi
-        
-        rm -rf genesis-plus-gx/.git
-        rm -f genesis-plus-gx/.gitignore
-        rm -f genesis-plus-gx/.gitmodules
-        
-        echo "=== Проверка ==="
-        ls -la genesis-plus-gx/core/osd.h genesis-plus-gx/core/libretro.h genesis-plus-gx/core/shared.h
+        yes | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null
+        ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager \
+          "ndk;27.0.12077973" \
+          "cmake;3.22.1" \
+          "platforms;android-35" \
+          "build-tools;35.0.0"
     
-    - name: Commit and Push
+    - name: Create local.properties
       run: |
-        git config user.name "github-actions"
-        git config user.email "github-actions@github.com"
-        git add .gitignore
-        git add -f app/src/main/cpp/genesis-plus-gx
-        git status
-        git commit -m "Add Genesis Plus GX emulator core" || echo "Nothing to commit"
-        git push
+        echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+        echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/27.0.12077973" >> local.properties
+    
+    - name: Create directories
+      run: |
+        mkdir -p app/src/main/assets
+        mkdir -p app/src/main/java/com/dune2emu
+        mkdir -p app/src/main/res/values
+        mkdir -p app/src/main/res/drawable
+        touch app/src/main/assets/.gitkeep
+    
+    - name: Generate Gradle Wrapper
+      run: |
+        gradle wrapper --gradle-version 8.11.1 --no-daemon
+        chmod +x gradlew
+    
+    - name: Cache Gradle
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+        restore-keys: ${{ runner.os }}-gradle-
+    
+    - name: Build Debug APK
+      run: |
+        ./gradlew assembleDebug --no-daemon --stacktrace
+    
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: Dune2Emulator-APK
+        path: app/build/outputs/apk/debug/*.apk
+        retention-days: 30
+    
+    - name: Upload Build Log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-log
+        path: |
+          app/build/reports/
+        retention-days: 7
