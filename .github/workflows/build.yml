@@ -27,14 +27,16 @@ jobs:
         api-level: 35
         build-tools: 35.0.0
     
-    - name: Install NDK, CMake and build tools
+    - name: Install NDK, CMake and zlib
       run: |
-        yes | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --licenses
+        yes | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null
         ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager \
           "ndk;27.0.12077973" \
           "cmake;3.22.1" \
           "platforms;android-35" \
           "build-tools;35.0.0"
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq zlib1g-dev
     
     - name: Create local.properties
       run: |
@@ -50,35 +52,51 @@ jobs:
         mkdir -p app/src/main/res/drawable
         touch app/src/main/assets/.gitkeep
     
-    - name: Download Genesis Plus GX (libretro version)
+    - name: Clone Genesis Plus GX
       run: |
         cd app/src/main/cpp
+        rm -rf genesis-plus-gx
         
-        # Clone the libretro version which has all headers
-        git clone --depth 1 --branch master \
-          https://github.com/libretro/Genesis-Plus-GX.git genesis-plus-gx
+        echo "Клонирую Genesis Plus GX..."
+        git clone --depth 1 https://github.com/libretro/Genesis-Plus-GX.git genesis-plus-gx
         
+        echo ""
         echo "=== Проверка файлов ==="
-        echo "system.c:"
-        ls -la genesis-plus-gx/core/system.c 2>/dev/null || echo "NOT FOUND"
-        echo "osd.h:"
-        ls -la genesis-plus-gx/core/osd.h 2>/dev/null || echo "NOT FOUND"
-        echo "libretro.h:"
-        ls -la genesis-plus-gx/core/libretro.h 2>/dev/null || echo "NOT FOUND"
+        echo ""
+        echo "System files:"
+        ls -la genesis-plus-gx/core/system.c genesis-plus-gx/core/loadrom.c genesis-plus-gx/core/membnk.c 2>/dev/null || echo "Некоторые system файлы отсутствуют"
         
-        echo "=== Все .h файлы ==="
-        find genesis-plus-gx/core -name "*.h" | sort
+        echo ""
+        echo "M68K files:"
+        ls -la genesis-plus-gx/core/m68k/m68kcpu.c genesis-plus-gx/core/m68k/m68kops.c 2>/dev/null || echo "Некоторые M68K файлы отсутствуют"
         
-        echo "=== Все .c файлы ==="
-        find genesis-plus-gx/core -name "*.c" | sort | head -30
+        echo ""
+        echo "VDP files:"
+        ls -la genesis-plus-gx/core/vdp_render.c genesis-plus-gx/core/vdp_ctrl.c genesis-plus-gx/core/render.c 2>/dev/null || echo "Некоторые VDP файлы отсутствуют"
+        
+        echo ""
+        echo "Sound files:"
+        ls -la genesis-plus-gx/core/sound/ym2612.c genesis-plus-gx/core/sound/sn76489.c genesis-plus-gx/core/sound/sound.c 2>/dev/null || echo "Некоторые sound файлы отсутствуют"
+        
+        echo ""
+        echo "=== Всего .c файлов: ==="
+        find genesis-plus-gx/core -name "*.c" -type f | wc -l
+        
+        echo ""
+        echo "=== Всего .h файлов: ==="
+        find genesis-plus-gx/core -name "*.h" -type f | wc -l
+        
+        echo ""
+        echo "=== Ключевые заголовки: ==="
+        ls -la genesis-plus-gx/core/osd.h 2>/dev/null || echo "osd.h отсутствует"
+        ls -la genesis-plus-gx/core/shared.h 2>/dev/null || echo "shared.h отсутствует"
+        ls -la genesis-plus-gx/core/libretro.h 2>/dev/null || echo "libretro.h отсутствует"
     
-    - name: Setup Gradle Wrapper
+    - name: Generate Gradle Wrapper
       run: |
-        # Generate Gradle wrapper
         gradle wrapper --gradle-version 8.11.1 --no-daemon
         chmod +x gradlew
-        
-        echo "=== Gradle wrapper files ==="
+        echo "Gradle wrapper создан"
         ls -la gradlew gradle/wrapper/
     
     - name: Cache Gradle
@@ -91,21 +109,35 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-gradle-
     
-    - name: Build APK
+    - name: Build Debug APK
       run: |
-        ./gradlew assembleDebug --no-daemon --stacktrace --info 2>&1 | tee build.log
+        ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+        echo ""
+        echo "=== Результат сборки ==="
+        if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+          echo "APK собран успешно!"
+          ls -la app/build/outputs/apk/debug/app-debug.apk
+        else
+          echo "APK не найден"
+          find app/build -name "*.apk" -type f || echo "Файлов APK нет"
+        fi
     
     - name: Upload APK
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: Dune2Emulator-APK
-        path: app/build/outputs/apk/debug/app-debug.apk
+        path: |
+          app/build/outputs/apk/debug/*.apk
+          app/build/outputs/apk/release/*.apk
         retention-days: 30
     
-    - name: Upload build log
+    - name: Upload Build Log
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: build-log
-        path: build.log
+        path: |
+          build.log
+          app/build/reports/
         retention-days: 7
