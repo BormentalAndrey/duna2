@@ -39,7 +39,7 @@ target_include_directories(dune2emu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/deps/zlib-1.2.11
 )
 
-# Макроопределения компилятора (Добавлены инлайны для компрессора FLAC)
+# Глобальные макроопределения компилятора
 target_compile_definitions(dune2emu PRIVATE
     ANDROID
     __LIBRETRO__
@@ -50,12 +50,16 @@ target_compile_definitions(dune2emu PRIVATE
     USE_16BPP_RENDERING
     RARCH_INTERNAL
     HAVE_STREAMS
-    "flac_min(a,b)=((a)<(b)?(a):(b))"
-    "flac_max(a,b)=((a)>(b)?(a):(b))"
 )
 
-# Флаги оптимизации сборки (-w скрывает предупреждения)
-target_compile_options(dune2emu PRIVATE -O3 -fomit-frame-pointer -w)
+# Флаги оптимизации, принудительного инклюда фиксов и понижения строгости к старому Си-коду
+target_compile_options(dune2emu PRIVATE 
+    -O3 
+    -fomit-frame-pointer 
+    -w
+    -Wno-error=implicit-function-declaration
+    -include "${CMAKE_CURRENT_SOURCE_DIR}/flac_fixes.h"
+)
 
 # Линковка системных библиотек Android
 target_link_libraries(dune2emu android GLESv2 EGL log OpenSLES z)
