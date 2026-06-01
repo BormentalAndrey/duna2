@@ -1,0 +1,52 @@
+# ROM files
+*.bin
+*.md
+*.gen
+*.smd
+*.rom
+*.32x
+*.iso
+*.cue
+
+# Android
+*.apk
+*.aab
+*.dex
+*.class
+bin/
+gen/
+out/
+.navigation/
+
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local configuration
+local.properties
+*.keystore
+!gradle-wrapper.jar
+
+# Genesis Plus GX source
+app/src/main/cpp/genesis-plus-gx/
+
+# Assets
+app/src/main/assets/dune2.bin
+app/src/main/assets/Dune*.bin
+
+# Build outputs
+captures/
+.externalNativeBuild/
+.cxx/
