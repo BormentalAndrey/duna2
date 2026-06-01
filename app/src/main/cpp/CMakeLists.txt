@@ -17,7 +17,7 @@ set(OUR_SRC emulator-bridge.cpp genesis-core.cpp)
 # Собрать общую библиотеку
 add_library(dune2emu SHARED ${ALL_C_FILES} ${OUR_SRC})
 
-# Include пути (Исправлен путь к кодеку minimp3)
+# Include пути (Добавлены пути для libchdr и libFLAC)
 target_include_directories(dune2emu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx
@@ -29,6 +29,9 @@ target_include_directories(dune2emu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/cart_hw
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/cart_hw/svp
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/cd_hw
+    ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/cd_hw/libchdr/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/cd_hw/libchdr/deps/libFLAC/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/cd_hw/libchdr/deps/lzma
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/input_hw
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/tremor
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro
