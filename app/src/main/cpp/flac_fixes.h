@@ -14,7 +14,12 @@
 #define HAVE_LROUNDF 1
 #endif
 
-// 3. Предыдущие фиксы для вычисления минимума/максимума
+// 3. Фикс для stream_decoder.c: отключаем поддержку контейнера Ogg
+#ifndef FLAC__HAS_OGG
+#define FLAC__HAS_OGG 0
+#endif
+
+// 4. Предыдущие фиксы для вычисления минимума/максимума
 #ifndef flac_min
 #define flac_min(a,b) ((a)<(b)?(a):(b))
 #endif
