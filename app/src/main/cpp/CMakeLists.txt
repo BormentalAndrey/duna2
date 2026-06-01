@@ -2,22 +2,19 @@ cmake_minimum_required(VERSION 3.22.1)
 project("dune2emu")
 set(CMAKE_CXX_STANDARD 17)
 
-# Найти абсолютно ВСЕ файлы .c эмулятора во всех подпапках ядра, libretro и кодеков
+# Найти абсолютно ВСЕ файлы .c эмулятора
 file(GLOB_RECURSE ALL_C_FILES
     genesis-plus-gx/core/*.c
     genesis-plus-gx/libretro/*.c
 )
 
-# Исключаем только один специфичный файл, который не нужен для Android/Libretro
 list(FILTER ALL_C_FILES EXCLUDE REGEX ".*/async_stream\\.c$")
 
-# Наши файлы моста
 set(OUR_SRC emulator-bridge.cpp genesis-core.cpp)
 
-# Собрать общую библиотеку
 add_library(dune2emu SHARED ${ALL_C_FILES} ${OUR_SRC})
 
-# Include пути (Добавлен точный путь к библиотеке zstd)
+# Добавлен путь к include для lzma-19.00
 target_include_directories(dune2emu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx
@@ -42,9 +39,9 @@ target_include_directories(dune2emu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/deps/zlib-1.2.11
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/deps/libchdr/include
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/deps/zstd/lib
+    ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/deps/lzma-19.00/include
 )
 
-# Глобальные макроопределения компилятора (Включаем поддержку ZSTD обратно)
 target_compile_definitions(dune2emu PRIVATE
     ANDROID
     __LIBRETRO__
@@ -60,7 +57,6 @@ target_compile_definitions(dune2emu PRIVATE
     HAVE_ZSTD
 )
 
-# Флаги оптимизации, принудительного инклюда фиксов и понижения строгости к старому Си-коду
 target_compile_options(dune2emu PRIVATE 
     -O3 
     -fomit-frame-pointer 
@@ -69,5 +65,4 @@ target_compile_options(dune2emu PRIVATE
     -include "${CMAKE_CURRENT_SOURCE_DIR}/flac_fixes.h"
 )
 
-# Линковка системных библиотек Android
 target_link_libraries(dune2emu android GLESv2 EGL log OpenSLES z)
