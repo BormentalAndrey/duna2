@@ -17,7 +17,7 @@ set(OUR_SRC emulator-bridge.cpp genesis-core.cpp)
 # Собрать общую библиотеку
 add_library(dune2emu SHARED ${ALL_C_FILES} ${OUR_SRC})
 
-# Include пути (Добавлены пути для libchdr и libFLAC)
+# Include пути
 target_include_directories(dune2emu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx
@@ -39,7 +39,7 @@ target_include_directories(dune2emu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/deps/zlib-1.2.11
 )
 
-# Макроопределения компилятора
+# Макроопределения компилятора (Добавлены инлайны для компрессора FLAC)
 target_compile_definitions(dune2emu PRIVATE
     ANDROID
     __LIBRETRO__
@@ -50,6 +50,8 @@ target_compile_definitions(dune2emu PRIVATE
     USE_16BPP_RENDERING
     RARCH_INTERNAL
     HAVE_STREAMS
+    "flac_min(a,b)=((a)<(b)?(a):(b))"
+    "flac_max(a,b)=((a)>(b)?(a):(b))"
 )
 
 # Флаги оптимизации сборки (-w скрывает предупреждения)
