@@ -1,56 +1,48 @@
-#pragma once
+#ifndef GENESIS_CORE_HPP
+#define GENESIS_CORE_HPP
+
 #include <string>
-#include <cstdint>
 #include <vector>
+#include <cstdint>
+#include <GLES2/gl2.h>
+#include <SLES/OpenSLES.h>
+#include <SLES/OpenSLES_Android.h>
 
 class GenesisCore {
-private:
-    uint8_t* rom_data = nullptr;
-    size_t rom_size = 0;
-    uint8_t* vram = nullptr;
-    
-    // CPU state
-    struct CPUState {
-        uint32_t pc;
-        uint32_t regs[16];
-        uint8_t flags;
-    } m68k_state;
-    
-    // VDP state
-    struct VDPState {
-        uint8_t regs[24];
-        uint16_t vram[32768];
-        uint16_t cram[64];
-        uint16_t vsram[40];
-    } vdp_state;
-    
-    // Audio buffers
-    std::vector<int16_t> audio_buffer;
-    
-    // Input state
-    uint16_t input_state[2];
-    
-    // Frame buffer
-    uint32_t framebuffer[320 * 240];
-    
-    bool initialized = false;
-    std::string save_path;
-    
 public:
     GenesisCore() = default;
     ~GenesisCore();
-    
+
     bool init(const std::string& rom_path, const std::string& save_dir);
     void runFrame();
     void render();
     void setButton(int player, int button, bool pressed);
     bool saveState(int slot);
     bool loadState(int slot);
-    
+
 private:
-    void emulate_m68k();
-    void emulate_z80();
-    void emulate_vdp();
-    void emulate_audio();
-    void update_input();
+    bool initialized = false;
+    std::string save_path;
+
+    // Видео-буфер и OpenGL ресурсы
+    uint16_t local_framebuffer[320 * 240]; 
+    GLuint program_id = 0;
+    GLuint texture_id = 0;
+    GLuint vbo_id = 0;
+    
+    // OpenSLES Аудио-ресурсы
+    SLObjectItf engine_object = nullptr;
+    SLEngineItf engine_interface = nullptr;
+    SLObjectItf output_mix_object = nullptr;
+    SLObjectItf player_object = nullptr;
+    SLPlayItf player_play = nullptr;
+    SLAndroidSimpleBufferQueueItf player_buffer_queue = nullptr;
+
+    // Внутренние утилиты
+    void initOpenGL();
+    void initOpenSLES();
+    void shutdownOpenSLES();
+    GLuint compileShader(GLenum type, const char* source);
 };
+
+#endif // GENESIS_CORE_HPP
