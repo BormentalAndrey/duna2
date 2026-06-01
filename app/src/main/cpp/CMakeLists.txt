@@ -1,55 +1,72 @@
 cmake_minimum_required(VERSION 3.22.1)
 project("dune2emu")
 
-# Genesis Plus GX source files
-set(GENESIS_SRC
-    genesis-plus-gx/core/io_ctrl.c
-    genesis-plus-gx/core/io_joypad.c
-    genesis-plus-gx/core/cart_hw/sram.c
-    genesis-plus-gx/core/cart_hw/eeprom.c
-    genesis-plus-gx/core/cart_hw/md_cart.c
-    genesis-plus-gx/core/cd_hw/cd_cart.c
-    genesis-plus-gx/core/state.c
-    genesis-plus-gx/core/m68k/m68kcpu.c
-    genesis-plus-gx/core/z80/z80.c
-    genesis-plus-gx/core/sound/sn76489.c
-    genesis-plus-gx/core/sound/ym2612.c
-    genesis-plus-gx/core/vdp_render.c
-    genesis-plus-gx/core/system.c
-    genesis-plus-gx/core/loadrom.c
-    genesis-plus-gx/core/unzip.c
-    genesis-plus-gx/core/input_hw/input.c
-    genesis-plus-gx/core/sms.c
-    genesis-plus-gx/core/genesis.c
+# Enable C++17
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Collect Genesis Plus GX source files
+file(GLOB_RECURSE GENESIS_SOURCES
+    genesis-plus-gx/core/*.c
+    genesis-plus-gx/core/m68k/*.c
+    genesis-plus-gx/core/z80/*.c
+    genesis-plus-gx/core/sound/*.c
+    genesis-plus-gx/core/cart_hw/*.c
+    genesis-plus-gx/core/input_hw/*.c
+    genesis-plus-gx/core/cd_hw/*.c
+    genesis-plus-gx/core/ntsc/*.c
+    genesis-plus-gx/core/tremor/*.c
 )
 
-# Libretro interface
-set(LIBRETRO_SRC
-    libretro-interface.cpp
+# Our wrapper sources
+set(EMULATOR_SOURCES
     emulator-bridge.cpp
+    genesis-core.cpp
 )
 
+# Check if sources exist
+if(NOT GENESIS_SOURCES)
+    message(WARNING "Genesis Plus GX sources not found. Creating minimal implementation.")
+    # Create minimal implementation if Genesis Plus GX not found
+    set(GENESIS_SOURCES dummy_genesis.c)
+endif()
+
+# Create shared library
 add_library(dune2emu SHARED
-    ${GENESIS_SRC}
-    ${LIBRETRO_SRC}
+    ${GENESIS_SOURCES}
+    ${EMULATOR_SOURCES}
 )
 
+# Include directories
 target_include_directories(dune2emu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/m68k
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/z80
+    ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/sound
+    ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/cart_hw
+    ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/input_hw
+    ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/cd_hw
 )
 
+# Compile definitions
 target_compile_definitions(dune2emu PRIVATE
-    USE_16BPP_RENDERING=1
-    HAVE_INTTYPES=1
-    LSB_FIRST=1
-    ALIGN_LONG=1
-    ANDROID=1
+    ANDROID
+    __LIBRETRO__
+    LSB_FIRST
+    ALIGN_LONG
+    HAVE_INTTYPES
 )
 
+# Compile options
+target_compile_options(dune2emu PRIVATE
+    -O3
+    -funroll-loops
+    -fomit-frame-pointer
+)
+
+# Link libraries
 target_link_libraries(dune2emu
     android
     GLESv2
