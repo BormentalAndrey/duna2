@@ -1,48 +1,329 @@
-#ifndef GENESIS_CORE_HPP
-#define GENESIS_CORE_HPP
+#include "genesis-core.hpp"
+#include <cstring>
+#include <cstdio>
+#include <android/log.h>
 
-#include <string>
-#include <vector>
-#include <cstdint>
-#include <GLES2/gl2.h>
-#include <SLES/OpenSLES.h>
-#include <SLES/OpenSLES_Android.h>
+extern "C" {
+#include "shared.h"
+}
 
-class GenesisCore {
-public:
-    GenesisCore() = default;
-    ~GenesisCore();
+#define TAG "GenesisPlus"
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
-    bool init(const std::string& rom_path, const std::string& save_dir);
-    void runFrame();
-    void render();
-    void setButton(int player, int button, bool pressed);
-    bool saveState(int slot);
-    bool loadState(int slot);
+// Константы маппинга кнопок SEGA Mega Drive
+#define SEGA_UP    0x0001
+#define SEGA_DOWN  0x0002
+#define SEGA_LEFT  0x0004
+#define SEGA_RIGHT 0x0008
+#define SEGA_B     0x0010
+#define SEGA_C     0x0020
+#define SEGA_A     0x0040
+#define SEGA_START 0x0080
 
-private:
-    bool initialized = false;
-    std::string save_path;
+// Статический коллбек для очереди аудио OpenSLES
+static void bqPlayerCallback(SLAndroidSimpleBufferQueueItf bq, void *context) {
+    // В данной архитектуре мы пушим аудио синхронно в цикле runFrame, 
+    // данный коллбек необходим просто для поддержания работы механизма очереди.
+}
 
-    // Видео-буфер и OpenGL ресурсы
-    uint16_t local_framebuffer[320 * 240]; 
-    GLuint program_id = 0;
-    GLuint texture_id = 0;
-    GLuint vbo_id = 0;
+GenesisCore::~GenesisCore() {
+    shutdownOpenSLES();
+
+    if (program_id) glDeleteProgram(program_id);
+    if (texture_id) glDeleteTextures(1, &texture_id);
+    if (vbo_id) glDeleteBuffers(1, &vbo_id);
     
-    // OpenSLES Аудио-ресурсы
-    SLObjectItf engine_object = nullptr;
-    SLEngineItf engine_interface = nullptr;
-    SLObjectItf output_mix_object = nullptr;
-    SLObjectItf player_object = nullptr;
-    SLPlayItf player_play = nullptr;
-    SLAndroidSimpleBufferQueueItf player_buffer_queue = nullptr;
+    if (initialized) {
+        audio_shutdown();
+    }
+}
 
-    // Внутренние утилиты
-    void initOpenGL();
-    void initOpenSLES();
-    void shutdownOpenSLES();
-    GLuint compileShader(GLenum type, const char* source);
-};
+bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir) {
+    LOGD("Initializing Genesis Plus GX Core for ROM: %s", rom_path.c_str());
+    save_path = save_dir;
 
-#endif // GENESIS_CORE_HPP
+    // 1. Инициализация глобальных структур Genesis Plus GX
+    memset(&config, 0, sizeof(config));
+    config.hq_fm = 1;         // Высокое качество звука FM-синтезатора
+    config.filter = 1;        // Сглаживание звука
+    config.psg_preamp = 150;
+    config.fm_preamp = 150;
+    config.lp_range = 0x9999; // Низкочастотный фильтр
+
+    // Настройка системного тайминга и региона (0 = Авто)
+    config.region_detect = 0;
+    config.vdp_mode = 0; 
+    config.master_clock = 0;
+
+    // Инициализация аудио-подсистемы ядра (44100 Гц, 60 кадров/сек для NTSC)
+    audio_init(44100, 60);
+
+    // Инициализация всей виртуальной аппаратной части эмулятора
+    system_init();
+
+    // 2. Попытка загрузить файл ROM средствами ядра
+    // load_rom возвращает 1 при успешной инициализации мапперов и чтении файла
+    if (!load_rom((char*)rom_path.c_str())) {
+        LOGE("Genesis Plus GX failed to load ROM file.");
+        return false;
+    }
+
+    // Сброс состояния процессоров эмулятора в начальное положение
+    system_reset();
+
+    // 3. Подготовка локального звукового и графического окружения Android
+    initOpenSLES();
+    std::memset(local_framebuffer, 0, sizeof(local_framebuffer));
+
+    initialized = true;
+    LOGD("Genesis core engine started successfully.");
+    return true;
+}
+
+void GenesisCore::runFrame() {
+    if (!initialized) return;
+
+    // Выполняем эмуляцию ровно одного кадра (отрисовка всех линий VDP + просчет логики m68k/z80)
+    system_frame(0);
+
+    // Копируем аудио-данные из внутреннего циклического буфера ядра в буфер OpenSLES
+    int16_t audio_samples[2048];
+    int samples_emulated = audio_update(audio_samples);
+    if (samples_emulated > 0 && player_buffer_queue) {
+        (*player_buffer_queue)->Enqueue(player_buffer_queue, audio_samples, samples_emulated * 2 * sizeof(int16_t));
+    }
+}
+
+void GenesisCore::initOpenGL() {
+    if (program_id != 0) return; // Уже инициализировано
+
+    const char* vertex_shader_src =
+        "attribute vec4 vPosition;\n"
+        "attribute vec2 vTexCoord;\n"
+        "varying vec2 fTexCoord;\n"
+        "void main() {\n"
+        "  gl_Position = vPosition;\n"
+        "  fTexCoord = vTexCoord;\n"
+        "}\n";
+
+    const char* fragment_shader_src =
+        "precision mediump float;\n"
+        "varying vec2 fTexCoord;\n"
+        "uniform sampler2D uTexture;\n"
+        "void main() {\n"
+        "  gl_FragColor = texture2D(uTexture, fTexCoord);\n"
+        "}\n";
+
+    GLuint vs = compileShader(GL_VERTEX_SHADER, vertex_shader_src);
+    GLuint fs = compileShader(GL_FRAGMENT_SHADER, fragment_shader_src);
+
+    program_id = glCreateProgram();
+    glAttachShader(program_id, vs);
+    glAttachShader(program_id, fs);
+    glLinkProgram(program_id);
+
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+
+    // Координаты Fullscreen Quad (X, Y, U, V)
+    float vertices[] = {
+        -1.0f,  1.0f,  0.0f, 0.0f,
+        -1.0f, -1.0f,  0.0f, 1.0f,
+         1.0f,  1.0f,  1.0f, 0.0f,
+         1.0f, -1.0f,  1.0f, 1.0f
+    };
+
+    glGenBuffers(1, &vbo_id);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_id);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+    glGenTextures(1, &texture_id);
+    glBindTexture(GL_TEXTURE_2D, texture_id);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+}
+
+GLuint GenesisCore::compileShader(GLenum type, const char* source) {
+    GLuint shader = glCreateShader(type);
+    glShaderSource(shader, 1, &source, nullptr);
+    glCompileShader(shader);
+    return shader;
+}
+
+void GenesisCore::render() {
+    if (!initialized) return;
+
+    initOpenGL();
+
+    // Извлекаем актуальные границы вьюпорта кадра из ядра Genesis Plus GX
+    int width = bitmap.viewport.w;
+    int height = bitmap.viewport.h;
+    int pitch = bitmap.pitch; // Шаг в байтах между строками исходного буфера
+
+    // Преобразуем шаг из байт в пиксели (так как у нас USE_16BPP_RENDERING, 1 пиксель = 2 байта)
+    int pitch_pixels = pitch / 2;
+    uint16_t* src_data = (uint16_t*)bitmap.data + (bitmap.viewport.y * pitch_pixels) + bitmap.viewport.x;
+
+    // Заполняем локальный непрерывный буфер для текстуры OpenGL, отсекая пустые служебные пиксели по краям
+    for (int y = 0; y < height; ++y) {
+        std::memcpy(&local_framebuffer[y * width], &src_data[y * pitch_pixels], width * sizeof(uint16_t));
+    }
+
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glUseProgram(program_id);
+
+    glActiveTexture(GL_TEXTURE_0);
+    glBindTexture(GL_TEXTURE_2D, texture_id);
+    
+    // Загружаем пиксели формата RGB565 напрямую в видеопамять графического чипа
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, local_framebuffer);
+    glUniform1i(glGetUniformLocation(program_id, "uTexture"), 0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_id);
+    
+    GLint pos_attrib = glGetAttribLocation(program_id, "vPosition");
+    glEnableVertexAttribArray(pos_attrib);
+    glVertexAttribPointer(pos_attrib, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+
+    GLint tex_attrib = glGetAttribLocation(program_id, "vTexCoord");
+    glEnableVertexAttribArray(tex_attrib);
+    glVertexAttribPointer(tex_attrib, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+void GenesisCore::setButton(int player, int button, bool pressed) {
+    if (!initialized || player < 0 || player > 1) return;
+
+    uint16_t sega_mask = 0;
+    
+    // Маппинг переданных идентификаторов абстрактных кнопок к маске Sega Genesis
+    switch (button) {
+        case 0: sega_mask = SEGA_UP;    break;
+        case 1: sega_mask = SEGA_DOWN;  break;
+        case 2: sega_mask = SEGA_LEFT;  break;
+        case 3: sega_mask = SEGA_RIGHT; break;
+        case 4: sega_mask = SEGA_A;     break;
+        case 5: sega_mask = SEGA_B;     break;
+        case 6: sega_mask = SEGA_C;     break;
+        case 7: sega_mask = SEGA_START; break;
+        default: return;
+    }
+
+    // Запись битов напрямую во внутреннюю структуру ввода ядра эмулятора
+    if (pressed) {
+        input.pad[player] |= sega_mask;
+    } else {
+        input.pad[player] &= ~sega_mask;
+    }
+}
+
+bool GenesisCore::saveState(int slot) {
+    if (!initialized) return false;
+
+    char filepath[512];
+    std::snprintf(filepath, sizeof(filepath), "%s/save_%d.state", save_path.c_str(), slot);
+
+    FILE* f = std::fopen(filepath, "wb");
+    if (!f) return false;
+
+    // Получаем точный снимок ОЗУ, VRAM и регистров чипов
+    unsigned char state_buffer[1024 * 512]; // 512KB с запасом под стейт Sega Genesis
+    int state_size = state_save(state_buffer);
+    
+    if (state_size > 0) {
+        std::fwrite(state_buffer, 1, state_size, f);
+    }
+    
+    std::fclose(f);
+    return state_size > 0;
+}
+
+bool GenesisCore::loadState(int slot) {
+    if (!initialized) return false;
+
+    char filepath[512];
+    std::snprintf(filepath, sizeof(filepath), "%s/save_%d.state", save_path.c_str(), slot);
+
+    FILE* f = std::fopen(filepath, "rb");
+    if (!f) return false;
+
+    std::fseek(f, 0, SEEK_END);
+    long size = std::ftell(f);
+    std::fseek(f, 0, SEEK_SET);
+
+    std::vector<unsigned char> state_buffer(size);
+    size_t read_bytes = std::fread(state_buffer.data(), 1, size, f);
+    std::fclose(f);
+
+    if (read_bytes > 0) {
+        // Загружаем стейт обратно в память эмулятора
+        return state_load(state_buffer.data()) > 0;
+    }
+    return false;
+}
+
+void GenesisCore::initOpenSLES() {
+    // Шаблон развертывания аудио-движка OpenSLES на Android
+    slCreateEngine(&engine_object, 0, nullptr, 0, nullptr, nullptr);
+    (*engine_object)->Realize(engine_object, SL_BOOLEAN_FALSE);
+    (*engine_object)->GetInterface(engine_object, SL_IID_ENGINE, &engine_interface);
+
+    (*engine_interface)->CreateOutputMix(engine_interface, &output_mix_object, 0, nullptr, nullptr);
+    (*output_mix_object)->Realize(output_mix_object, SL_BOOLEAN_FALSE);
+
+    SLDataLocator_AndroidSimpleBufferQueue loc_bufq = { SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE, 2 };
+    
+    // Настройка аудио-потока PCM Stereo, 44100 Гц, 16-бит
+    SLDataFormat_PCM format_pcm = {
+        SL_DATAFORMAT_PCM, 2, SL_SAMPLINGRATE_44_1,
+        SL_PCMSAMPLEFORMAT_FIXED_16, SL_PCMSAMPLEFORMAT_FIXED_16,
+        SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT, SL_BYTEORDER_LITTLEENDIAN
+    };
+
+    SLDataSource audio_src = { &loc_bufq, &format_pcm };
+
+    SLDataLocator_OutputMix loc_outmix = { SL_DATALOCATOR_OUTPUTMIX, output_mix_object };
+    SLDataSink audio_snk = { &loc_outmix, nullptr };
+
+    const SLInterfaceID ids[1] = { SL_IID_BUFFERQUEUE };
+    const SLboolean req[1] = { SL_BOOLEAN_TRUE };
+
+    (*engine_interface)->CreateAudioPlayer(engine_interface, &player_object, &audio_src, &audio_snk, 1, ids, req);
+    (*player_object)->Realize(player_object, SL_BOOLEAN_FALSE);
+
+    (*player_object)->GetInterface(player_object, SL_IID_PLAY, &player_play);
+    (*player_object)->GetInterface(player_object, SL_IID_BUFFERQUEUE, &player_buffer_queue);
+
+    (*player_buffer_queue)->RegisterCallback(player_buffer_queue, bqPlayerCallback, this);
+    (*player_play)->SetPlayState(player_play, SL_PLAYSTATE_PLAYING);
+
+    // Пушим первичную тишину для разогрева аудиотрека
+    int16_t silence[441 * 2] = {0};
+    (*player_buffer_queue)->Enqueue(player_buffer_queue, silence, sizeof(silence));
+}
+
+void GenesisCore::shutdownOpenSLES() {
+    if (player_play) {
+        (*player_play)->SetPlayState(player_play, SL_PLAYSTATE_STOPPED);
+    }
+    if (player_object) {
+        (*player_object)->Destroy(player_object);
+        player_object = nullptr;
+        player_buffer_queue = nullptr;
+    }
+    if (output_mix_object) {
+        (*output_mix_object)->Destroy(output_mix_object);
+        output_mix_object = nullptr;
+    }
+    if (engine_object) {
+        (*engine_object)->Destroy(engine_object);
+        engine_object = nullptr;
+        engine_interface = nullptr;
+    }
+}
