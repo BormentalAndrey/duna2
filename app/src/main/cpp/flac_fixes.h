@@ -33,4 +33,9 @@
 #define _7ZIP_ST
 #endif
 
+// 6. Фикс для libchdr (cdrom.h): определяем стандартный инлайн для Clang, если он не задан глобально
+#ifndef INLINE
+#define INLINE static inline
+#endif
+
 #endif // FLAC_FIXES_H
