@@ -29,12 +29,9 @@ file(GLOB LIBRETRO_CORE_SRC
 )
 
 # Наши файлы
-set(OUR_SRC
-    emulator-bridge.cpp
-    genesis-core.cpp
-)
+set(OUR_SRC emulator-bridge.cpp genesis-core.cpp)
 
-# Исключаем проблемные cart_hw файлы
+# Исключаем проблемные файлы
 list(FILTER GENESIS_SRC EXCLUDE REGEX ".*/cart_hw/(eeprom_93c|eeprom_i2c|eeprom_spi|flash_cfi|areplay|ggenie|megasd|yx5200|sms_cart)\\.c$")
 list(FILTER GENESIS_SRC EXCLUDE REGEX ".*/cart_hw/svp/.*")
 list(FILTER LIBRETRO_COMMON_SRC EXCLUDE REGEX ".*/async_stream\\.c$")
@@ -47,7 +44,7 @@ add_library(dune2emu SHARED
     ${OUR_SRC}
 )
 
-# Include пути
+# Include пути (все где есть нужные .h файлы)
 target_include_directories(dune2emu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx
@@ -61,7 +58,12 @@ target_include_directories(dune2emu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/libretro-common/include
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/libretro-common/include/compat
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/libretro-common/include/streams
+    ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/libretro-common/include/string
+    ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/libretro-common/include/encodings
+    ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/libretro-common/include/file
+    ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/libretro-common/include/vfs
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/sdl
+    ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/deps/zlib-1.2.11
 )
 
 # Defines
@@ -75,6 +77,7 @@ target_compile_definitions(dune2emu PRIVATE
     USE_16BPP_RENDERING
     RARCH_INTERNAL
     HAVE_STREAMS
+    HAVE_ZLIB
 )
 
 # Компиляция
