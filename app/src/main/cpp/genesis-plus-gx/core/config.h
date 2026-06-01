@@ -1,4 +1,3 @@
-cat > app/src/main/cpp/genesis-plus-gx/core/config.h << 'EOF'
 #ifndef CONFIG_H
 #define CONFIG_H
 #define HAVE_INTTYPES 1
