@@ -8,9 +8,10 @@ file(GLOB_RECURSE ALL_C_FILES
     genesis-plus-gx/libretro/*.c
 )
 
-# ИСКЛЮЧАЕМ папку libretro/deps/ из компиляции, чтобы убрать конфликтующие дубликаты
+# ИСКЛЮЧАЕМ папки и файлы, которые не нужны или ломают сборку на Android
 list(FILTER ALL_C_FILES EXCLUDE REGEX ".*/libretro/deps/.*")
 list(FILTER ALL_C_FILES EXCLUDE REGEX ".*/async_stream\\.c$")
+list(FILTER ALL_C_FILES EXCLUDE REGEX ".*/libretro-common/cdrom/.*") # Исключаем физический CD-ROM
 
 # Наши файлы моста
 set(OUR_SRC emulator-bridge.cpp genesis-core.cpp)
@@ -18,7 +19,7 @@ set(OUR_SRC emulator-bridge.cpp genesis-core.cpp)
 # Собрать общую библиотеку
 add_library(dune2emu SHARED ${ALL_C_FILES} ${OUR_SRC})
 
-# Include пути (Добавлен только путь к инклюдам libchdr, где лежит dr_libs)
+# Include пути
 target_include_directories(dune2emu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx
