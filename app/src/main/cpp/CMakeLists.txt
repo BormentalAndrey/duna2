@@ -8,7 +8,7 @@ file(GLOB_RECURSE ALL_C_FILES
     genesis-plus-gx/libretro/*.c
 )
 
-# ИСКЛЮЧАЕМ папку libretro/deps/, чтобы убрать конфликтующие дубликаты (lzma, zstd, zlib)
+# ИСКЛЮЧАЕМ папку libretro/deps/ из компиляции, чтобы убрать конфликтующие дубликаты
 list(FILTER ALL_C_FILES EXCLUDE REGEX ".*/libretro/deps/.*")
 list(FILTER ALL_C_FILES EXCLUDE REGEX ".*/async_stream\\.c$")
 
@@ -18,7 +18,7 @@ set(OUR_SRC emulator-bridge.cpp genesis-core.cpp)
 # Собрать общую библиотеку
 add_library(dune2emu SHARED ${ALL_C_FILES} ${OUR_SRC})
 
-# Оставляем только чистые пути к актуальным исходникам
+# Include пути (Добавлен только путь к инклюдам libchdr, где лежит dr_libs)
 target_include_directories(dune2emu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx
@@ -40,9 +40,10 @@ target_include_directories(dune2emu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/core/tremor
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro
     ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/libretro-common/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/genesis-plus-gx/libretro/deps/libchdr/include
 )
 
-# Родные макроопределения (Убираем HAVE_ZSTD, так как встроенный кодек ядра его не требует)
+# Родные макроопределения эмулятора
 target_compile_definitions(dune2emu PRIVATE
     ANDROID
     __LIBRETRO__
