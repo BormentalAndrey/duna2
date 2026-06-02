@@ -3,6 +3,7 @@ plugins {
     id 'org.jetbrains.kotlin.android' version '2.1.0' apply false
 }
 
-task clean(type: Delete) {
-    delete rootProject.buildDir
+// Обновленный синтаксис для современных версий Gradle
+tasks.register('clean', Delete) {
+    delete rootProject.layout.buildDirectory
 }
