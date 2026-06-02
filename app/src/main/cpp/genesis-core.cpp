@@ -11,6 +11,16 @@
 extern "C" {
 #include "shared.h"
 
+// --- ОТМЕНА МАКРОСОВ LIBRETRO ---
+// Libretro (через shared.h) переопределяет стандартные функции работы с файлами.
+// Мы отменяем их, чтобы std::fopen, std::fread и стандартный FILE* компилировались без ошибок.
+#undef fopen
+#undef fclose
+#undef fread
+#undef fwrite
+#undef fseek
+#undef ftell
+
 void system_frame_gen(int skip);
 
 void retro_set_environment(bool (*cb)(unsigned, void *));
