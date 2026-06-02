@@ -75,18 +75,30 @@ Java_com_dune2emu_RetroBridge_startEmulation(JNIEnv* env, jobject thiz) {
         }
 
         while (g_running) {
+            bool frame_rendered = false;
+            
+            // Мы блокируем мьютекс ТОЛЬКО на время просчета кадра, чтобы
+            // saveState и loadState из UI-потока не повредили память.
+            // При этом мы вынесли eglSwapBuffers за пределы мьютекса!
             {
                 std::lock_guard<std::mutex> lock(g_mutex);
                 if (g_emu) {
-                    g_emu->runFrame(); // Теперь он блокируется внутри, ожидая буфера аудио
+                    g_emu->runFrame();
                     g_emu->render();
-                    if (g_display != EGL_NO_DISPLAY) {
-                        eglSwapBuffers(g_display, g_surface);
-                    }
+                    frame_rendered = true;
                 }
             }
-            // Даем микросекунду JNI потоку интерфейса, чтобы он мог отправить нажатия кнопок
-            std::this_thread::yield(); 
+
+            // eglSwapBuffers может долго ждать VSync. Делаем это без мьютекса, 
+            // чтобы интерфейс (UI) не подвисал, если попытается вызвать JNI функции.
+            if (frame_rendered && g_display != EGL_NO_DISPLAY) {
+                eglSwapBuffers(g_display, g_surface);
+            }
+            
+            // ОПТИМИЗАЦИЯ: заменяем yield() на sleep_for(). 
+            // yield() на Android может вызывать 100% нагрузку на ядро процессора, 
+            // что лишает UI-поток времени на обработку нажатий экрана.
+            std::this_thread::sleep_for(std::chrono::milliseconds(1)); 
         }
 
         if (g_display != EGL_NO_DISPLAY) {
@@ -119,8 +131,8 @@ Java_com_dune2emu_RetroBridge_stopEmulation(JNIEnv* env, jobject thiz) {
 
 JNIEXPORT void JNICALL
 Java_com_dune2emu_RetroBridge_setButtonState(JNIEnv* env, jobject thiz, jint player, jint button, jboolean pressed) {
-    // Внимание: мы специально убрали отсюда блокировку g_mutex, 
-    // чтобы UI не лагал во время ожидания кадров!
+    // Внимание: блокировка убрана, как и было. Теперь это полностью безопасно, 
+    // так как внутри setButton используются атомарные операции.
     if (g_emu) {
         g_emu->setButton(player, button, pressed);
     }
@@ -128,11 +140,13 @@ Java_com_dune2emu_RetroBridge_setButtonState(JNIEnv* env, jobject thiz, jint pla
 
 JNIEXPORT jboolean JNICALL
 Java_com_dune2emu_RetroBridge_saveState(JNIEnv* env, jobject thiz, jint slot) {
+    std::lock_guard<std::mutex> lock(g_mutex);
     return g_emu ? g_emu->saveState(slot) : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_dune2emu_RetroBridge_loadState(JNIEnv* env, jobject thiz, jint slot) {
+    std::lock_guard<std::mutex> lock(g_mutex);
     return g_emu ? g_emu->loadState(slot) : JNI_FALSE;
 }
 
