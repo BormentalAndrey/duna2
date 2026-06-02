@@ -31,47 +31,27 @@ int64_t core_fsize(void *stream) {
 }
 }
 
-// --- СИСТЕМА ВВОДА (ФИКС КНОПОК: ИСПОЛЬЗУЕМ АТОМАРНЫЕ ПЕРЕМЕННЫЕ) ---
+#define TAG "GenesisPlus"
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+
+// --- СИСТЕМА ВВОДА ---
 static std::atomic<bool> g_player_buttons[2][8] = {};
 
+// --- СИНХРОНИЗАЦИЯ И ПУЛ АУДИО БУФЕРОВ ---
+static std::atomic<int> g_free_audio_buffers(4);
+static int16_t g_audio_buffer_pool[4][4096]; 
+static int g_next_audio_buffer = 0;
+
+// Заглушки для Libretro (так как мы работаем напрямую с ядром)
 static bool dummy_environ(unsigned cmd, void *data) { return false; }
 static void dummy_video(const void *data, unsigned width, unsigned height, size_t pitch) {}
 static void dummy_audio(int16_t left, int16_t right) {}
 static size_t dummy_audio_batch(const int16_t *data, size_t frames) { return frames; }
 static void dummy_input_poll(void) {}
+static int16_t dummy_input_state(unsigned port, unsigned device, unsigned index, unsigned id) { return 0; }
 
-// Libretro опрашивает нас. Переводим наши ID в стандартные кнопки Libretro.
-static int16_t dummy_input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
-    if (port > 1) return 0;
-    switch(id) {
-        case 4: return g_player_buttons[port][0].load() ? 1 : 0; // UP
-        case 5: return g_player_buttons[port][1].load() ? 1 : 0; // DOWN
-        case 6: return g_player_buttons[port][2].load() ? 1 : 0; // LEFT
-        case 7: return g_player_buttons[port][3].load() ? 1 : 0; // RIGHT
-        case 1: return g_player_buttons[port][4].load() ? 1 : 0; // Genesis A (Retro Y)
-        case 0: return g_player_buttons[port][5].load() ? 1 : 0; // Genesis B (Retro B)
-        case 8: return g_player_buttons[port][6].load() ? 1 : 0; // Genesis C (Retro A)
-        case 3: return g_player_buttons[port][7].load() ? 1 : 0; // START
-    }
-    return 0;
-}
-
-#undef FILE
-#undef fopen
-#undef fclose
-#undef fwrite
-#undef fread
-#undef fseek
-#undef ftell
-
-#define TAG "GenesisPlus"
-#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
-
-// --- СИНХРОНИЗАЦИЯ АУДИО (ФИКС ЗВУКА И СКОРОСТИ ИГРЫ) ---
-static std::atomic<int> g_free_audio_buffers(4);
-
-// Коллбэк срабатывает каждый раз, когда звуковая карта проиграла кусок аудио
+// Коллбэк OpenSL ES: срабатывает, когда звуковая карта завершает воспроизведение буфера
 static void bqPlayerCallback(SLAndroidSimpleBufferQueueItf bq, void *context) {
     g_free_audio_buffers++;
 }
@@ -97,14 +77,14 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
     retro_set_input_poll(dummy_input_poll);
     retro_set_input_state(dummy_input_state);
 
-    memset(&config, 0, sizeof(config));
+    std::memset(&config, 0, sizeof(config));
     config.hq_fm = 1;         
     config.filter = 1;        
     config.psg_preamp = 150;
     config.fm_preamp = 150;
     config.lp_range = 0x9999; 
     config.region_detect = 0;
-    config.vdp_mode = 0; 
+    config.vdp_mode = 0;  
     config.master_clock = 0;
 
     if (!load_rom((char*)rom_path.c_str())) {
@@ -133,15 +113,31 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
 void GenesisCore::runFrame() {
     if (!initialized) return;
 
+    // --- ОБРАБОТКА ВВОДА: Записываем маску кнопок напрямую в ядро ---
+    for (int i = 0; i < 2; i++) {
+        uint16_t pad = 0;
+        if (g_player_buttons[i][0].load()) pad |= 0x0001; // UP
+        if (g_player_buttons[i][1].load()) pad |= 0x0002; // DOWN
+        if (g_player_buttons[i][2].load()) pad |= 0x0004; // LEFT
+        if (g_player_buttons[i][3].load()) pad |= 0x0008; // RIGHT
+        if (g_player_buttons[i][5].load()) pad |= 0x0010; // B
+        if (g_player_buttons[i][6].load()) pad |= 0x0020; // C
+        if (g_player_buttons[i][4].load()) pad |= 0x0040; // A
+        if (g_player_buttons[i][7].load()) pad |= 0x0080; // START
+        
+        input.pad[i] = pad;
+    }
+
+    // Просчет кадра оригинальным ядром эмулятора
     system_frame_gen(0);
 
-    int16_t audio_samples[2048];
-    int samples_emulated = audio_update(audio_samples);
+    // --- ОБРАБОТКА ЗВУКА: Работа с безопасным пулом памяти ---
+    int16_t temp_samples[2048];
+    int samples_emulated = audio_update(temp_samples);
     
     if (samples_emulated > 0 && player_buffer_queue) {
-        // AUDIO SYNC: Ждем, пока аудио-карта телефона не освободит буфер.
-        // Это блокирует цикл эмуляции и синхронизирует скорость игры под идеальные 60 FPS!
         int timeout = 0;
+        // Синхронизация по аудио для удержания стабильных 60 FPS
         while (g_free_audio_buffers <= 0 && timeout < 100) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
             timeout++;
@@ -149,9 +145,17 @@ void GenesisCore::runFrame() {
 
         if (g_free_audio_buffers > 0) {
             g_free_audio_buffers--;
-        }
+            
+            size_t bytes_to_copy = samples_emulated * 2 * sizeof(int16_t);
+            std::memcpy(g_audio_buffer_pool[g_next_audio_buffer], temp_samples, bytes_to_copy);
 
-        (*player_buffer_queue)->Enqueue(player_buffer_queue, audio_samples, samples_emulated * 2 * sizeof(int16_t));
+            // Передаем в OpenSL ES указатель на долговременную память из пула
+            (*player_buffer_queue)->Enqueue(player_buffer_queue, 
+                                            g_audio_buffer_pool[g_next_audio_buffer], 
+                                            bytes_to_copy);
+            
+            g_next_audio_buffer = (g_next_audio_buffer + 1) % 4;
+        }
     }
 }
 
@@ -248,7 +252,6 @@ void GenesisCore::render() {
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
-// Записываем кнопки в наш массив (ТЕПЕРЬ АТОМАРНО)
 void GenesisCore::setButton(int player, int button, bool pressed) {
     if (player >= 0 && player <= 1 && button >= 0 && button < 8) {
         g_player_buttons[player][button].store(pressed);
@@ -262,9 +265,12 @@ bool GenesisCore::saveState(int slot) {
     FILE* f = std::fopen(filepath, "wb");
     if (!f) return false;
 
-    unsigned char state_buffer[1024 * 512]; 
-    int state_size = state_save(state_buffer);
-    if (state_size > 0) std::fwrite(state_buffer, 1, state_size, f);
+    // Выделяем память в куче, чтобы предотвратить Stack Overflow
+    std::vector<unsigned char> state_buffer(1024 * 1024 * 2); // 2 MB под сейвстейт
+    int state_size = state_save(state_buffer.data());
+    if (state_size > 0) {
+        std::fwrite(state_buffer.data(), 1, state_size, f);
+    }
     std::fclose(f);
     return state_size > 0;
 }
@@ -315,13 +321,13 @@ void GenesisCore::initOpenSLES() {
     (*player_object)->GetInterface(player_object, SL_IID_PLAY, &player_play);
     (*player_object)->GetInterface(player_object, SL_IID_BUFFERQUEUE, &player_buffer_queue);
 
-    // Подключаем наш коллбэк для счетчика буферов!
     (*player_buffer_queue)->RegisterCallback(player_buffer_queue, bqPlayerCallback, nullptr);
     (*player_play)->SetPlayState(player_play, SL_PLAYSTATE_PLAYING);
 
     g_free_audio_buffers = 4;
+    g_next_audio_buffer = 0;
 
-    // Разогрев (пушим тишину в пайплайн)
+    // Разогрев аудиосистемы
     int16_t silence[735 * 2] = {0};
     g_free_audio_buffers -= 2;
     (*player_buffer_queue)->Enqueue(player_buffer_queue, silence, sizeof(silence));
