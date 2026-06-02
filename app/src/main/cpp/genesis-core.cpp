@@ -1,11 +1,34 @@
 #include "genesis-core.hpp"
 #include <cstring>
 #include <cstdio>
+#include <vector>
 #include <android/log.h>
+
+// Подключаем заголовок OpenGL ES 2.0 для констант и функций рендеринга
+#include <GLES2/gl2.h>
 
 extern "C" {
 #include "shared.h"
+
+// Явные прототипы функций ядра Си для предотвращения ошибок "undeclared identifier"
+void system_init(void);
+void system_reset(void);
+void system_frame(int skip);
+int load_rom(char *filename);
+void audio_init(int rate, int fps);
+int audio_update(int16_t *buffer);
+void audio_shutdown(void);
+int state_save(unsigned char *buf);
+int state_load(unsigned char *buf);
 }
+
+// Сбрасываем агрессивные макросы Libretro, которые ломают std::fopen, std::fwrite и т.д.
+#undef fopen
+#undef fclose
+#undef fwrite
+#undef fread
+#undef fseek
+#undef ftell
 
 #define TAG "GenesisPlus"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
@@ -63,7 +86,6 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
     system_init();
 
     // 2. Попытка загрузить файл ROM средствами ядра
-    // load_rom возвращает 1 при успешной инициализации мапперов и чтении файла
     if (!load_rom((char*)rom_path.c_str())) {
         LOGE("Genesis Plus GX failed to load ROM file.");
         return false;
