@@ -3913,8 +3913,7 @@ void retro_run(void)
       audio_hard_disable = false;
    }
 
-  /* Check whether current frame should
-  * be skipped */
+  /* Check whether current frame should be skipped */
   if ((frameskip_type > 0) &&
       retro_audio_buff_active &&
       !do_skip)
@@ -3941,8 +3940,19 @@ void retro_run(void)
       frameskip_counter++;
   }
 
-  /* If frameskip settings have changed, update
-  * frontend audio latency */
+  /* --- ИНЪЕКЦИЯ ВВОДА ИЗ ANDROID (НАЧАЛО) --- */
+  // Предполагается, что в начале libretro.c объявлены:
+  // extern atomic_uint g_android_pads[2]; 
+  extern atomic_uint g_android_pads[2]; 
+  
+  for (int i = 0; i < 2; i++) {
+      unsigned int pads = atomic_load(&g_android_pads[i]);
+      // Применяем маску к внутреннему состоянию геймпадов эмулятора
+      input.pad[i] |= pads; 
+  }
+  /* --- ИНЪЕКЦИЯ ВВОДА ИЗ ANDROID (КОНЕЦ) --- */
+
+  /* If frameskip settings have changed, update frontend audio latency */
   if (update_audio_latency)
   {
     environ_cb(RETRO_ENVIRONMENT_SET_MINIMUM_AUDIO_LATENCY,
@@ -3964,7 +3974,7 @@ void retro_run(void)
    }
 
    soundbuffer_size = audio_update(soundbuffer);
-
+}
    /* Force viewport update when SMS border changes after startup undetected */
    if (     ((system_hw == SYSTEM_MARKIII) || (system_hw & SYSTEM_SMS) || (system_hw == SYSTEM_PBC))
          && reg[0] != reg0_prev)
