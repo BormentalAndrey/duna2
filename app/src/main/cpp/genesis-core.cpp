@@ -1,5 +1,5 @@
 // 1. КРИТИЧЕСКИ ВАЖНО: OpenGL ES на самом верху, до эмулятора и локальных заголовков
-#include <GLES2/gl2.h>
+#include <GLES3/gl3.h>
 
 #include "genesis-core.hpp"
 #include <cstring>
