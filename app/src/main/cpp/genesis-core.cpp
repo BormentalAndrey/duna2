@@ -47,6 +47,7 @@ int64_t core_fsize(void *stream) {
 GenesisCore* GenesisCore::s_instance = nullptr;
 
 // --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ---
+// Индексы: [player][button] где button: 0=UP, 1=DOWN, 2=LEFT, 3=RIGHT, 4=A, 5=B, 6=C, 7=START
 static std::atomic<bool> g_player_buttons[2][8] = {};
 
 // --- СИНХРОНИЗАЦИЯ И ПУЛ АУДИО БУФЕРОВ ---
@@ -79,9 +80,20 @@ static size_t libretro_audio_batch(const int16_t *data, size_t frames) {
 static void libretro_input_poll(void) {
 }
 
+// ВАЖНО: маппинг для osd_input_update_internal() в libretro.c
+// RETRO_DEVICE_ID_JOYPAD: B=0, Y=1, SELECT=2, START=3, UP=4, DOWN=5, LEFT=6, RIGHT=7, A=8
 static int16_t libretro_input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
-    if (port < 2 && device == 1 && id < 8) {
-        return g_player_buttons[port][id].load() ? 1 : 0;
+    if (port < 2 && device == 1) { // RETRO_DEVICE_JOYPAD
+        switch (id) {
+            case 4: return g_player_buttons[port][0].load() ? 1 : 0; // UP
+            case 5: return g_player_buttons[port][1].load() ? 1 : 0; // DOWN
+            case 6: return g_player_buttons[port][2].load() ? 1 : 0; // LEFT
+            case 7: return g_player_buttons[port][3].load() ? 1 : 0; // RIGHT
+            case 1: return g_player_buttons[port][4].load() ? 1 : 0; // A (RetroID Y)
+            case 0: return g_player_buttons[port][5].load() ? 1 : 0; // B (RetroID B)
+            case 8: return g_player_buttons[port][6].load() ? 1 : 0; // C (RetroID A)
+            case 3: return g_player_buttons[port][7].load() ? 1 : 0; // START
+        }
     }
     return 0;
 }
@@ -149,22 +161,9 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
 void GenesisCore::runFrame() {
     if (!initialized) return;
 
-    // --- ОБРАБОТКА ВВОДА ---
-    // Коды кнопок соответствуют Kotlin: UP=0, DOWN=1, LEFT=2, RIGHT=3, A=4, B=5, C=6, START=7
-    for (int i = 0; i < 2; i++) {
-        uint16_t pad = 0;
-        if (g_player_buttons[i][0].load()) pad |= 0x0001; // UP
-        if (g_player_buttons[i][1].load()) pad |= 0x0002; // DOWN
-        if (g_player_buttons[i][2].load()) pad |= 0x0004; // LEFT
-        if (g_player_buttons[i][3].load()) pad |= 0x0008; // RIGHT
-        if (g_player_buttons[i][4].load()) pad |= 0x0010; // A
-        if (g_player_buttons[i][5].load()) pad |= 0x0020; // B
-        if (g_player_buttons[i][6].load()) pad |= 0x0040; // C
-        if (g_player_buttons[i][7].load()) pad |= 0x0080; // START
-        
-        input.pad[i] = pad;
-    }
-
+    // system_frame_gen() внутри вызывает osd_input_update(),
+    // которая через input_state_cb читает g_player_buttons.
+    // НЕ нужно устанавливать input.pad вручную!
     system_frame_gen(0);
 
     // --- ОБРАБОТКА ЗВУКА ---
