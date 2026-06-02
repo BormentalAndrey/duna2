@@ -6,6 +6,7 @@
 #include <string>
 #include <thread>
 #include <mutex>
+#include <chrono> // Добавлено для синхронизации кадров (60 FPS)
 #include "genesis-core.hpp"
 
 #define LOG_TAG "Dune2Emu"
@@ -81,16 +82,33 @@ Java_com_dune2emu_RetroBridge_startEmulation(JNIEnv* env, jobject thiz) {
             eglMakeCurrent(g_display, g_surface, g_surface, g_context);
         }
 
+        // ЦЕЛЕВОЙ FPS: 60 кадров в секунду (16.666 мс на кадр)
+        using namespace std::chrono;
+        const nanoseconds frame_duration(16666667);
+
         while (g_running) {
-            std::lock_guard<std::mutex> lock(g_mutex);
-            
-            if (g_emu) {
-                g_emu->runFrame();
-                g_emu->render();
+            auto frame_start = high_resolution_clock::now();
+
+            {
+                std::lock_guard<std::mutex> lock(g_mutex);
                 
-                if (g_display != EGL_NO_DISPLAY) {
-                    eglSwapBuffers(g_display, g_surface);
+                if (g_emu) {
+                    g_emu->runFrame();
+                    g_emu->render();
+                    
+                    if (g_display != EGL_NO_DISPLAY) {
+                        eglSwapBuffers(g_display, g_surface);
+                    }
                 }
+            }
+
+            // Ожидание до конца 16.6мс, чтобы звук не захлебывался и игра не ускорялась
+            auto frame_end = high_resolution_clock::now();
+            auto time_taken = frame_end - frame_start;
+            auto sleep_time = frame_duration - time_taken;
+            
+            if (sleep_time > nanoseconds::zero()) {
+                std::this_thread::sleep_for(sleep_time);
             }
         }
 
