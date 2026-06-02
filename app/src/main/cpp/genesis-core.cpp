@@ -1,28 +1,22 @@
+// 1. КРИТИЧЕСКИ ВАЖНО: OpenGL ES на самом верху, до эмулятора и локальных заголовков
+#include <GLES2/gl2.h>
+
 #include "genesis-core.hpp"
 #include <cstring>
 #include <cstdio>
 #include <vector>
 #include <android/log.h>
 
-// Подключаем заголовок OpenGL ES 2.0 для констант и функций рендеринга
-#include <GLES2/gl2.h>
-
 extern "C" {
 #include "shared.h"
 
-// Явные прототипы функций ядра Си для предотвращения ошибок "undeclared identifier"
-void system_init(void);
-void system_reset(void);
+// Объявляем только ту функцию, которой не оказалось в shared.h.
+// audio_init НЕ трогаем, так как ядро его уже импортировало из system.h автоматически.
 void system_frame(int skip);
-int load_rom(char *filename);
-void audio_init(int rate, int fps);
-int audio_update(int16_t *buffer);
-void audio_shutdown(void);
-int state_save(unsigned char *buf);
-int state_load(unsigned char *buf);
 }
 
-// Сбрасываем агрессивные макросы Libretro, которые ломают std::fopen, std::fwrite и т.д.
+// 2. Полностью нейтрализуем макросы Libretro, возвращая стандартный ввод-вывод std::
+#undef FILE
 #undef fopen
 #undef fclose
 #undef fwrite
@@ -80,7 +74,7 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
     config.master_clock = 0;
 
     // Инициализация аудио-подсистемы ядра (44100 Гц, 60 кадров/сек для NTSC)
-    audio_init(44100, 60);
+    audio_init(44100, 60.0);
 
     // Инициализация всей виртуальной аппаратной части эмулятора
     system_init();
