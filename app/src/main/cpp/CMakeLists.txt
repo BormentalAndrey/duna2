@@ -12,7 +12,7 @@ file(GLOB_RECURSE ALL_C_FILES
 list(FILTER ALL_C_FILES EXCLUDE REGEX ".*/libretro/deps/.*")
 list(FILTER ALL_C_FILES EXCLUDE REGEX ".*/async_stream\\.c$")
 list(FILTER ALL_C_FILES EXCLUDE REGEX ".*/libretro-common/cdrom/.*")
-list(FILTER ALL_C_FILES EXREGEX ".*/vfs_implementation_cdrom\\.c$") # Исключаем физический CD-ROM VFS
+list(FILTER ALL_C_FILES EXCLUDE REGEX ".*/vfs_implementation_cdrom\\.c$") # ИСПРАВЛЕНО: EXCLUDE REGEX вместо EXREGEX
 
 # Наши файлы моста
 set(OUR_SRC emulator-bridge.cpp genesis-core.cpp)
