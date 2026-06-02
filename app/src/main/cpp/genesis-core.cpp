@@ -13,6 +13,15 @@ extern "C" {
 // Genesis Plus GX использует разные функции цикла для каждой консоли.
 void system_frame_gen(int skip);
 
+// --- LIBRETRO DUMMY HOOKS ---
+// Прототипы функций Libretro для безопасной инициализации обертки
+void retro_set_environment(bool (*cb)(unsigned, void *));
+void retro_set_video_refresh(void (*cb)(const void *, unsigned, unsigned, size_t));
+void retro_set_audio_sample(void (*cb)(int16_t, int16_t));
+void retro_set_audio_sample_batch(size_t (*cb)(const int16_t *, size_t));
+void retro_set_input_poll(void (*cb)(void));
+void retro_set_input_state(int16_t (*cb)(unsigned, unsigned, unsigned, unsigned));
+
 // Заглушка для libchdr. Требуется линкером из-за флага сборки -D__LIBRETRO__
 int64_t core_fsize(void *stream) {
     if (!stream) return 0;
@@ -24,6 +33,16 @@ int64_t core_fsize(void *stream) {
     return size;
 }
 }
+
+// --- ПУСТЫЕ КОЛЛБЭКИ ДЛЯ LIBRETRO ---
+// Они предотвращают краш по NULL pointer dereference внутри libretro.c
+static bool dummy_environ(unsigned cmd, void *data) { return false; }
+static void dummy_video(const void *data, unsigned width, unsigned height, size_t pitch) {}
+static void dummy_audio(int16_t left, int16_t right) {}
+static size_t dummy_audio_batch(const int16_t *data, size_t frames) { return frames; }
+static void dummy_input_poll(void) {}
+static int16_t dummy_input_state(unsigned port, unsigned device, unsigned index, unsigned id) { return 0; }
+
 
 // Полностью нейтрализуем макросы Libretro для стандартного ввода-вывода
 #undef FILE
@@ -62,6 +81,15 @@ GenesisCore::~GenesisCore() {
 bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir) {
     LOGD("Initializing Genesis Plus GX Core for ROM: %s", rom_path.c_str());
     save_path = save_dir;
+
+    // 0. НЕЙТРАЛИЗУЕМ LIBRETRO
+    // Скажем обёртке libretro.c использовать наши пустые функции. Это устраняет краш в osd_input_update()
+    retro_set_environment(dummy_environ);
+    retro_set_video_refresh(dummy_video);
+    retro_set_audio_sample(dummy_audio);
+    retro_set_audio_sample_batch(dummy_audio_batch);
+    retro_set_input_poll(dummy_input_poll);
+    retro_set_input_state(dummy_input_state);
 
     // 1. Предварительная настройка конфигурации структуры эмулятора
     memset(&config, 0, sizeof(config));
