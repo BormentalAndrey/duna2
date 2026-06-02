@@ -16,7 +16,6 @@ static std::thread g_emu_thread;
 static std::mutex g_mutex;
 static bool g_running = false;
 
-// EGL контекст
 static EGLDisplay g_display = EGL_NO_DISPLAY;
 static EGLSurface g_surface = EGL_NO_SURFACE;
 static EGLContext g_context = EGL_NO_CONTEXT;
@@ -43,10 +42,8 @@ Java_com_dune2emu_RetroBridge_initEmulator(JNIEnv* env, jobject thiz,
 JNIEXPORT jboolean JNICALL
 Java_com_dune2emu_RetroBridge_setSurface(JNIEnv* env, jobject thiz, jobject surface) {
     ANativeWindow* window = ANativeWindow_fromSurface(env, surface);
-    
     if (!window) return JNI_FALSE;
     
-    // Инициализация EGL
     g_display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     eglInitialize(g_display, nullptr, nullptr);
     
@@ -68,7 +65,8 @@ Java_com_dune2emu_RetroBridge_setSurface(JNIEnv* env, jobject thiz, jobject surf
     EGLint ctx_attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
     g_context = eglCreateContext(g_display, config, EGL_NO_CONTEXT, ctx_attribs);
     
-    eglMakeCurrent(g_display, g_surface, g_surface, g_context);
+    // КРИТИЧЕСКИ ВАЖНО: Отпускаем контекст на UI-потоке, чтобы его занял рабочий поток эмуляции
+    eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     
     return JNI_TRUE;
 }
@@ -78,20 +76,27 @@ Java_com_dune2emu_RetroBridge_startEmulation(JNIEnv* env, jobject thiz) {
     g_running = true;
     
     g_emu_thread = std::thread([]() {
+        // 1. Привязываем EGL контекст к выделенному фоновому потоку
+        if (g_display != EGL_NO_DISPLAY && g_surface != EGL_NO_SURFACE && g_context != EGL_NO_CONTEXT) {
+            eglMakeCurrent(g_display, g_surface, g_surface, g_context);
+        }
+
         while (g_running) {
             std::lock_guard<std::mutex> lock(g_mutex);
             
             if (g_emu) {
                 g_emu->runFrame();
-                
-                // Рендеринг кадра
                 g_emu->render();
                 
-                // Swap buffers
                 if (g_display != EGL_NO_DISPLAY) {
                     eglSwapBuffers(g_display, g_surface);
                 }
             }
+        }
+
+        // 2. Освобождаем контекст перед завершением потока
+        if (g_display != EGL_NO_DISPLAY) {
+            eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         }
     });
 }
@@ -111,9 +116,13 @@ Java_com_dune2emu_RetroBridge_stopEmulation(JNIEnv* env, jobject thiz) {
         g_emu = nullptr;
     }
     
-    eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-    eglDestroySurface(g_display, g_surface);
-    eglDestroyContext(g_display, g_context);
+    if (g_display != EGL_NO_DISPLAY) {
+        eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        if (g_surface != EGL_NO_SURFACE) eglDestroySurface(g_display, g_surface);
+        if (g_context != EGL_NO_CONTEXT) eglDestroyContext(g_display, g_context);
+    }
+    g_surface = EGL_NO_SURFACE;
+    g_context = EGL_NO_CONTEXT;
 }
 
 JNIEXPORT void JNICALL
