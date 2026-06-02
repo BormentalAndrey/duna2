@@ -152,11 +152,6 @@ class GamepadView(context: Context) : View(context) {
             }
         }
         
-        // Лог для отладки
-        if (newPressed.isNotEmpty() || pressedButtons.isNotEmpty()) {
-            Log.d("Gamepad", "Pressed: ${newPressed.map { it.button.name }}, Old: ${pressedButtons.map { it.button.name }}")
-        }
-        
         // Отправляем нажатие НОВЫХ кнопок
         for (btn in newPressed) {
             if (!pressedButtons.contains(btn)) {
