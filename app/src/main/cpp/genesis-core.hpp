@@ -20,9 +20,12 @@ public:
     bool saveState(int slot);
     bool loadState(int slot);
 
+    // Публичные для доступа из C коллбэков
+    static GenesisCore* s_instance;
+    std::string save_path;
+
 private:
     bool initialized = false;
-    std::string save_path;
 
     // Видео-буфер и OpenGL ресурсы
     uint16_t local_framebuffer[320 * 240]; 
@@ -43,10 +46,6 @@ private:
     void initOpenSLES();
     void shutdownOpenSLES();
     GLuint compileShader(GLenum type, const char* source);
-
-    // Доступ для статических коллбэков
-    friend class GenesisCoreBridge;
-    static GenesisCore* s_instance;
 };
 
 #endif // GENESIS_CORE_HPP
