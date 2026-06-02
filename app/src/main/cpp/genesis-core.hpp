@@ -43,6 +43,10 @@ private:
     void initOpenSLES();
     void shutdownOpenSLES();
     GLuint compileShader(GLenum type, const char* source);
+
+    // Доступ для статических коллбэков
+    friend class GenesisCoreBridge;
+    static GenesisCore* s_instance;
 };
 
 #endif // GENESIS_CORE_HPP
