@@ -11,7 +11,6 @@
 extern "C" {
 #include "shared.h"
 
-// --- ОТМЕНА МАКРОСОВ LIBRETRO ---
 #undef FILE
 #undef fopen
 #undef fclose
@@ -57,7 +56,7 @@ static int g_next_audio_buffer = 0;
 
 // --- РАБОЧИЕ КОЛЛБЭКИ LIBRETRO ---
 static bool libretro_environ(unsigned cmd, void *data) {
-    if (cmd == 9) { // RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY
+    if (cmd == 9) {
         if (GenesisCore::s_instance && data) {
             const char** dir = (const char**)data;
             *dir = GenesisCore::s_instance->save_path.c_str();
@@ -68,12 +67,9 @@ static bool libretro_environ(unsigned cmd, void *data) {
 }
 
 static void libretro_video(const void *data, unsigned width, unsigned height, size_t pitch) {
-    // В текущей архитектуре ядро напрямую пишет в local_framebuffer.
-    // Коллбэк оставлен для совместимости с API, если вызывается retro_run().
 }
 
 static void libretro_audio(int16_t left, int16_t right) {
-    // Обработка одиночных сэмплов (не используется при пакетной обработке)
 }
 
 static size_t libretro_audio_batch(const int16_t *data, size_t frames) {
@@ -81,17 +77,15 @@ static size_t libretro_audio_batch(const int16_t *data, size_t frames) {
 }
 
 static void libretro_input_poll(void) {
-    // Состояние уже обновляется асинхронно через JNI
 }
 
 static int16_t libretro_input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
-    if (port < 2 && device == 1 /* RETRO_DEVICE_JOYPAD */ && id < 8) {
+    if (port < 2 && device == 1 && id < 8) {
         return g_player_buttons[port][id].load() ? 1 : 0;
     }
     return 0;
 }
 
-// Коллбэк OpenSL ES: срабатывает, когда звуковая карта завершает воспроизведение буфера
 static void bqPlayerCallback(SLAndroidSimpleBufferQueueItf bq, void *context) {
     g_free_audio_buffers++;
 }
@@ -112,7 +106,6 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
     save_path = save_dir;
     s_instance = this;
 
-    // Привязываем реальные коллбэки вместо заглушек
     retro_set_environment(libretro_environ);
     retro_set_video_refresh(libretro_video);
     retro_set_audio_sample(libretro_audio);
@@ -156,33 +149,32 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
 void GenesisCore::runFrame() {
     if (!initialized) return;
 
-    // --- ОБРАБОТКА ВВОДА: Записываем маску кнопок напрямую в ядро ---
+    // --- ОБРАБОТКА ВВОДА ---
+    // Коды кнопок соответствуют Kotlin: UP=0, DOWN=1, LEFT=2, RIGHT=3, A=4, B=5, C=6, START=7
     for (int i = 0; i < 2; i++) {
         uint16_t pad = 0;
         if (g_player_buttons[i][0].load()) pad |= 0x0001; // UP
         if (g_player_buttons[i][1].load()) pad |= 0x0002; // DOWN
         if (g_player_buttons[i][2].load()) pad |= 0x0004; // LEFT
         if (g_player_buttons[i][3].load()) pad |= 0x0008; // RIGHT
-        if (g_player_buttons[i][5].load()) pad |= 0x0010; // B
-        if (g_player_buttons[i][6].load()) pad |= 0x0020; // C
-        if (g_player_buttons[i][4].load()) pad |= 0x0040; // A
+        if (g_player_buttons[i][4].load()) pad |= 0x0010; // A
+        if (g_player_buttons[i][5].load()) pad |= 0x0020; // B
+        if (g_player_buttons[i][6].load()) pad |= 0x0040; // C
         if (g_player_buttons[i][7].load()) pad |= 0x0080; // START
         
         input.pad[i] = pad;
     }
 
-    // Просчет кадра оригинальным ядром эмулятора
     system_frame_gen(0);
 
-    // --- ОБРАБОТКА ЗВУКА: Работа с безопасным пулом памяти ---
+    // --- ОБРАБОТКА ЗВУКА ---
     int16_t temp_samples[2048];
     int samples_emulated = audio_update(temp_samples);
     
     if (samples_emulated > 0 && player_buffer_queue) {
         int timeout = 0;
-        // Синхронизация по аудио для удержания стабильных 60 FPS
         while (g_free_audio_buffers <= 0 && timeout < 2000) {
-            std::this_thread::yield(); // Более мягкое ожидание, чем sleep_for
+            std::this_thread::yield();
             timeout++;
         }
 
@@ -192,7 +184,6 @@ void GenesisCore::runFrame() {
             size_t bytes_to_copy = samples_emulated * 2 * sizeof(int16_t);
             std::memcpy(g_audio_buffer_pool[g_next_audio_buffer], temp_samples, bytes_to_copy);
 
-            // Передаем в OpenSL ES указатель на долговременную память из пула
             (*player_buffer_queue)->Enqueue(player_buffer_queue, 
                                             g_audio_buffer_pool[g_next_audio_buffer], 
                                             bytes_to_copy);
