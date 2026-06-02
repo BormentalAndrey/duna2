@@ -20,8 +20,7 @@ extern "C" {
 #undef ftell
 
 void system_frame_gen(int skip);
-void input_end_frame(unsigned int cycles);
-void input_refresh(void);
+void osd_input_update_internal(void);
 
 void retro_set_environment(bool (*cb)(unsigned, void *));
 void retro_set_video_refresh(void (*cb)(const void *, unsigned, unsigned, size_t));
@@ -72,14 +71,14 @@ static void libretro_input_poll(void) {}
 static int16_t libretro_input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
     if (port < 2 && device == 1) {
         switch (id) {
-            case 4: return g_player_buttons[port][0].load() ? 1 : 0;
-            case 5: return g_player_buttons[port][1].load() ? 1 : 0;
-            case 6: return g_player_buttons[port][2].load() ? 1 : 0;
-            case 7: return g_player_buttons[port][3].load() ? 1 : 0;
-            case 1: return g_player_buttons[port][4].load() ? 1 : 0;
-            case 0: return g_player_buttons[port][5].load() ? 1 : 0;
-            case 8: return g_player_buttons[port][6].load() ? 1 : 0;
-            case 3: return g_player_buttons[port][7].load() ? 1 : 0;
+            case 4: return g_player_buttons[port][0].load() ? 1 : 0; // UP
+            case 5: return g_player_buttons[port][1].load() ? 1 : 0; // DOWN
+            case 6: return g_player_buttons[port][2].load() ? 1 : 0; // LEFT
+            case 7: return g_player_buttons[port][3].load() ? 1 : 0; // RIGHT
+            case 1: return g_player_buttons[port][4].load() ? 1 : 0; // A
+            case 0: return g_player_buttons[port][5].load() ? 1 : 0; // B
+            case 8: return g_player_buttons[port][6].load() ? 1 : 0; // C
+            case 3: return g_player_buttons[port][7].load() ? 1 : 0; // START
         }
     }
     return 0;
@@ -137,6 +136,10 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
 
     system_reset();
 
+    // Инициализация устройств ввода
+    input.dev[0] = DEVICE_PAD6B;
+    input.dev[1] = DEVICE_PAD6B;
+
     initOpenSLES();
 
     initialized = true;
@@ -147,42 +150,12 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
 void GenesisCore::runFrame() {
     if (!initialized) return;
 
-    // Настройка портов — 6-кнопочный геймпад (шире совместимость)
-    input.system[0] = SYSTEM_GAMEPAD;
-    input.system[1] = SYSTEM_GAMEPAD;
-    input.dev[0] = DEVICE_PAD6B;
-    input.dev[1] = DEVICE_PAD6B;
+    // osd_input_update_internal() читает кнопки через libretro_input_state()
+    // и заполняет input.pad[i] правильными битовыми масками
+    osd_input_update_internal();
 
-    // Заполняем состояние кнопок
-    for (int i = 0; i < 2; i++) {
-        uint16_t pad = 0;
-        if (g_player_buttons[i][0].load()) pad |= INPUT_UP;
-        if (g_player_buttons[i][1].load()) pad |= INPUT_DOWN;
-        if (g_player_buttons[i][2].load()) pad |= INPUT_LEFT;
-        if (g_player_buttons[i][3].load()) pad |= INPUT_RIGHT;
-        if (g_player_buttons[i][4].load()) pad |= INPUT_A;
-        if (g_player_buttons[i][5].load()) pad |= INPUT_B;
-        if (g_player_buttons[i][6].load()) pad |= INPUT_C;
-        if (g_player_buttons[i][7].load()) pad |= INPUT_START;
-        
-        input.pad[i] = pad;
-
-        static int fc = 0;
-        if (pad != 0 && (fc % 60 == 0)) {
-            LOGD("P%d: pad=0x%04X BTN:%d%d%d%d%d%d%d%d", i, pad,
-                 g_player_buttons[i][0].load(), g_player_buttons[i][1].load(),
-                 g_player_buttons[i][2].load(), g_player_buttons[i][3].load(),
-                 g_player_buttons[i][4].load(), g_player_buttons[i][5].load(),
-                 g_player_buttons[i][6].load(), g_player_buttons[i][7].load());
-        }
-        fc++;
-    }
-
-    // Синхронизация ввода с регистрами эмулятора
-    input_refresh();
-    
+    // Генерируем кадр — ядро читает input.pad[i]
     system_frame_gen(0);
-    input_end_frame(0);
 
     int16_t temp_samples[2048];
     int samples_emulated = audio_update(temp_samples);
