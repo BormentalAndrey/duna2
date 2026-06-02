@@ -45,6 +45,7 @@
 #include <stddef.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdatomic.h>
 
 #ifdef _MSC_VER
 #define snprintf _snprintf
