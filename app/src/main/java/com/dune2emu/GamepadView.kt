@@ -2,6 +2,7 @@ package com.dune2emu
 
 import android.content.Context
 import android.graphics.*
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 
@@ -113,44 +114,64 @@ class GamepadView(context: Context) : View(context) {
     
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val newPressed = mutableSetOf<EmulatorCore.GenesisButton>()
+        val action = event.actionMasked
         
-        // Проходим по всем активным касаниям (Multi-Touch)
-        for (i in 0 until event.pointerCount) {
-            val action = event.actionMasked
-            
-            // Игнорируем палец, который прямо сейчас отрывается от экрана
-            if ((action == MotionEvent.ACTION_POINTER_UP || 
-                 action == MotionEvent.ACTION_UP || 
-                 action == MotionEvent.ACTION_CANCEL) && 
-                i == event.actionIndex) {
-                continue
+        when (action) {
+            MotionEvent.ACTION_DOWN,
+            MotionEvent.ACTION_POINTER_DOWN,
+            MotionEvent.ACTION_MOVE -> {
+                // Проверяем ВСЕ активные касания
+                for (i in 0 until event.pointerCount) {
+                    val x = event.getX(i)
+                    val y = event.getY(i)
+                    
+                    for (button in buttons) {
+                        if (button.rect.contains(x, y)) {
+                            newPressed.add(button.button)
+                        }
+                    }
+                }
             }
             
-            val x = event.getX(i)
-            val y = event.getY(i)
-            
-            for (button in buttons) {
-                if (button.rect.contains(x, y)) {
-                    newPressed.add(button.button)
+            MotionEvent.ACTION_UP,
+            MotionEvent.ACTION_POINTER_UP,
+            MotionEvent.ACTION_CANCEL -> {
+                // Проверяем ОСТАВШИЕСЯ касания (кроме того что поднялось)
+                for (i in 0 until event.pointerCount) {
+                    if (i == event.actionIndex) continue
+                    
+                    val x = event.getX(i)
+                    val y = event.getY(i)
+                    
+                    for (button in buttons) {
+                        if (button.rect.contains(x, y)) {
+                            newPressed.add(button.button)
+                        }
+                    }
                 }
             }
         }
         
-        // 1. Отправляем в ядро нажатие НОВЫХ кнопок
+        // Лог для отладки
+        if (newPressed.isNotEmpty() || pressedButtons.isNotEmpty()) {
+            Log.d("Gamepad", "Pressed: ${newPressed.map { it.button.name }}, Old: ${pressedButtons.map { it.button.name }}")
+        }
+        
+        // Отправляем нажатие НОВЫХ кнопок
         for (btn in newPressed) {
             if (!pressedButtons.contains(btn)) {
                 emulator?.pressButton(0, btn)
             }
         }
         
-        // 2. Отправляем в ядро отпускание СТАРЫХ кнопок
+        // Отправляем отпускание СТАРЫХ кнопок
         for (btn in pressedButtons) {
             if (!newPressed.contains(btn)) {
                 emulator?.releaseButton(0, btn)
             }
         }
         
-        // Обновляем текущее состояние
+        // Обновляем состояние
         pressedButtons.clear()
         pressedButtons.addAll(newPressed)
         
