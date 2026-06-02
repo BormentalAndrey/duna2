@@ -2,11 +2,10 @@
 #include <android/native_window_jni.h>
 #include <android/log.h>
 #include <EGL/egl.h>
-#include <GLES2/gl2.h>
+#include <GLES3/gl3.h>
 #include <string>
 #include <thread>
 #include <mutex>
-#include <chrono> // Добавлено для синхронизации кадров (60 FPS)
 #include "genesis-core.hpp"
 
 #define LOG_TAG "Dune2Emu"
@@ -24,8 +23,7 @@ static EGLContext g_context = EGL_NO_CONTEXT;
 extern "C" {
 
 JNIEXPORT jboolean JNICALL
-Java_com_dune2emu_RetroBridge_initEmulator(JNIEnv* env, jobject thiz,
-                                           jstring rom_path, jstring save_dir) {
+Java_com_dune2emu_RetroBridge_initEmulator(JNIEnv* env, jobject thiz, jstring rom_path, jstring save_dir) {
     std::lock_guard<std::mutex> lock(g_mutex);
     
     const char* rom = env->GetStringUTFChars(rom_path, nullptr);
@@ -51,9 +49,7 @@ Java_com_dune2emu_RetroBridge_setSurface(JNIEnv* env, jobject thiz, jobject surf
     EGLint attribs[] = {
         EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
         EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
-        EGL_BLUE_SIZE, 8,
-        EGL_GREEN_SIZE, 8,
-        EGL_RED_SIZE, 8,
+        EGL_BLUE_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_RED_SIZE, 8,
         EGL_NONE
     };
     
@@ -62,13 +58,10 @@ Java_com_dune2emu_RetroBridge_setSurface(JNIEnv* env, jobject thiz, jobject surf
     eglChooseConfig(g_display, attribs, &config, 1, &num_configs);
     
     g_surface = eglCreateWindowSurface(g_display, config, window, nullptr);
-    
     EGLint ctx_attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
     g_context = eglCreateContext(g_display, config, EGL_NO_CONTEXT, ctx_attribs);
     
-    // КРИТИЧЕСКИ ВАЖНО: Отпускаем контекст на UI-потоке, чтобы его занял рабочий поток эмуляции
     eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-    
     return JNI_TRUE;
 }
 
@@ -77,42 +70,25 @@ Java_com_dune2emu_RetroBridge_startEmulation(JNIEnv* env, jobject thiz) {
     g_running = true;
     
     g_emu_thread = std::thread([]() {
-        // 1. Привязываем EGL контекст к выделенному фоновому потоку
         if (g_display != EGL_NO_DISPLAY && g_surface != EGL_NO_SURFACE && g_context != EGL_NO_CONTEXT) {
             eglMakeCurrent(g_display, g_surface, g_surface, g_context);
         }
 
-        // ЦЕЛЕВОЙ FPS: 60 кадров в секунду (16.666 мс на кадр)
-        using namespace std::chrono;
-        const nanoseconds frame_duration(16666667);
-
         while (g_running) {
-            auto frame_start = high_resolution_clock::now();
-
             {
                 std::lock_guard<std::mutex> lock(g_mutex);
-                
                 if (g_emu) {
-                    g_emu->runFrame();
+                    g_emu->runFrame(); // Теперь он блокируется внутри, ожидая буфера аудио
                     g_emu->render();
-                    
                     if (g_display != EGL_NO_DISPLAY) {
                         eglSwapBuffers(g_display, g_surface);
                     }
                 }
             }
-
-            // Ожидание до конца 16.6мс, чтобы звук не захлебывался и игра не ускорялась
-            auto frame_end = high_resolution_clock::now();
-            auto time_taken = frame_end - frame_start;
-            auto sleep_time = frame_duration - time_taken;
-            
-            if (sleep_time > nanoseconds::zero()) {
-                std::this_thread::sleep_for(sleep_time);
-            }
+            // Даем микросекунду JNI потоку интерфейса, чтобы он мог отправить нажатия кнопок
+            std::this_thread::yield(); 
         }
 
-        // 2. Освобождаем контекст перед завершением потока
         if (g_display != EGL_NO_DISPLAY) {
             eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         }
@@ -122,13 +98,11 @@ Java_com_dune2emu_RetroBridge_startEmulation(JNIEnv* env, jobject thiz) {
 JNIEXPORT void JNICALL
 Java_com_dune2emu_RetroBridge_stopEmulation(JNIEnv* env, jobject thiz) {
     g_running = false;
-    
     if (g_emu_thread.joinable()) {
         g_emu_thread.join();
     }
     
     std::lock_guard<std::mutex> lock(g_mutex);
-    
     if (g_emu) {
         delete g_emu;
         g_emu = nullptr;
@@ -144,8 +118,9 @@ Java_com_dune2emu_RetroBridge_stopEmulation(JNIEnv* env, jobject thiz) {
 }
 
 JNIEXPORT void JNICALL
-Java_com_dune2emu_RetroBridge_setButtonState(JNIEnv* env, jobject thiz,
-                                             jint player, jint button, jboolean pressed) {
+Java_com_dune2emu_RetroBridge_setButtonState(JNIEnv* env, jobject thiz, jint player, jint button, jboolean pressed) {
+    // Внимание: мы специально убрали отсюда блокировку g_mutex, 
+    // чтобы UI не лагал во время ожидания кадров!
     if (g_emu) {
         g_emu->setButton(player, button, pressed);
     }
