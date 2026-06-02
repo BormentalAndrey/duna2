@@ -14,6 +14,7 @@ extern "C" {
 // --- ОТМЕНА МАКРОСОВ LIBRETRO ---
 // Libretro (через shared.h) переопределяет стандартные функции работы с файлами.
 // Мы отменяем их, чтобы std::fopen, std::fread и стандартный FILE* компилировались без ошибок.
+#undef FILE
 #undef fopen
 #undef fclose
 #undef fread
@@ -45,7 +46,8 @@ int64_t core_fsize(void *stream) {
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
-// --- СИСТЕМА ВВОДА ---
+// --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ---
+static GenesisCore* s_instance = nullptr;
 static std::atomic<bool> g_player_buttons[2][8] = {};
 
 // --- СИНХРОНИЗАЦИЯ И ПУЛ АУДИО БУФЕРОВ ---
@@ -53,13 +55,41 @@ static std::atomic<int> g_free_audio_buffers(4);
 static int16_t g_audio_buffer_pool[4][4096]; 
 static int g_next_audio_buffer = 0;
 
-// Заглушки для Libretro (так как мы работаем напрямую с ядром)
-static bool dummy_environ(unsigned cmd, void *data) { return false; }
-static void dummy_video(const void *data, unsigned width, unsigned height, size_t pitch) {}
-static void dummy_audio(int16_t left, int16_t right) {}
-static size_t dummy_audio_batch(const int16_t *data, size_t frames) { return frames; }
-static void dummy_input_poll(void) {}
-static int16_t dummy_input_state(unsigned port, unsigned device, unsigned index, unsigned id) { return 0; }
+// --- РАБОЧИЕ КОЛЛБЭКИ LIBRETRO ---
+static bool libretro_environ(unsigned cmd, void *data) {
+    if (cmd == 9) { // RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY
+        if (s_instance && data) {
+            const char** dir = (const char**)data;
+            *dir = s_instance->save_path.c_str();
+            return true;
+        }
+    }
+    return false;
+}
+
+static void libretro_video(const void *data, unsigned width, unsigned height, size_t pitch) {
+    // В текущей архитектуре ядро напрямую пишет в local_framebuffer.
+    // Коллбэк оставлен для совместимости с API, если вызывается retro_run().
+}
+
+static void libretro_audio(int16_t left, int16_t right) {
+    // Обработка одиночных сэмплов (не используется при пакетной обработке)
+}
+
+static size_t libretro_audio_batch(const int16_t *data, size_t frames) {
+    return frames;
+}
+
+static void libretro_input_poll(void) {
+    // Состояние уже обновляется асинхронно через JNI
+}
+
+static int16_t libretro_input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
+    if (port < 2 && device == 1 /* RETRO_DEVICE_JOYPAD */ && id < 8) {
+        return g_player_buttons[port][id].load() ? 1 : 0;
+    }
+    return 0;
+}
 
 // Коллбэк OpenSL ES: срабатывает, когда звуковая карта завершает воспроизведение буфера
 static void bqPlayerCallback(SLAndroidSimpleBufferQueueItf bq, void *context) {
@@ -74,18 +104,21 @@ GenesisCore::~GenesisCore() {
     if (initialized) {
         audio_shutdown();
     }
+    s_instance = nullptr;
 }
 
 bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir) {
     LOGD("Initializing Genesis Plus GX Core for ROM: %s", rom_path.c_str());
     save_path = save_dir;
+    s_instance = this;
 
-    retro_set_environment(dummy_environ);
-    retro_set_video_refresh(dummy_video);
-    retro_set_audio_sample(dummy_audio);
-    retro_set_audio_sample_batch(dummy_audio_batch);
-    retro_set_input_poll(dummy_input_poll);
-    retro_set_input_state(dummy_input_state);
+    // Привязываем реальные коллбэки вместо заглушек
+    retro_set_environment(libretro_environ);
+    retro_set_video_refresh(libretro_video);
+    retro_set_audio_sample(libretro_audio);
+    retro_set_audio_sample_batch(libretro_audio_batch);
+    retro_set_input_poll(libretro_input_poll);
+    retro_set_input_state(libretro_input_state);
 
     std::memset(&config, 0, sizeof(config));
     config.hq_fm = 1;         
@@ -148,8 +181,8 @@ void GenesisCore::runFrame() {
     if (samples_emulated > 0 && player_buffer_queue) {
         int timeout = 0;
         // Синхронизация по аудио для удержания стабильных 60 FPS
-        while (g_free_audio_buffers <= 0 && timeout < 100) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        while (g_free_audio_buffers <= 0 && timeout < 2000) {
+            std::this_thread::yield(); // Более мягкое ожидание, чем sleep_for
             timeout++;
         }
 
@@ -345,10 +378,16 @@ void GenesisCore::initOpenSLES() {
 }
 
 void GenesisCore::shutdownOpenSLES() {
-    if (player_play) (*player_play)->SetPlayState(player_play, SL_PLAYSTATE_STOPPED);
+    if (player_play) {
+        (*player_play)->SetPlayState(player_play, SL_PLAYSTATE_STOPPED);
+    }
+    if (player_buffer_queue) {
+        (*player_buffer_queue)->Clear(player_buffer_queue);
+    }
     if (player_object) {
         (*player_object)->Destroy(player_object);
         player_object = nullptr;
+        player_play = nullptr;
         player_buffer_queue = nullptr;
     }
     if (output_mix_object) {
