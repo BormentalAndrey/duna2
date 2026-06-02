@@ -32,10 +32,13 @@ class EmulatorActivity : AppCompatActivity(), SurfaceHolder.Callback {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 1. Продакшен-настройка полноэкранного режима (Immersive Mode)
+        // 1. Настройка полноэкранного режима (Immersive Mode)
         setupFullScreen()
 
-        // 2. Программное создание UI (без XML)
+        // 2. Инициализация ядра эмулятора (без блокировки, только Kotlin-обертка)
+        emulator = EmulatorCore()
+
+        // 3. Программное создание UI (без XML)
         val layout = FrameLayout(this)
 
         surfaceView = SurfaceView(this)
@@ -43,11 +46,12 @@ class EmulatorActivity : AppCompatActivity(), SurfaceHolder.Callback {
         layout.addView(surfaceView)
 
         gamepad = GamepadView(this)
+        // ИСПРАВЛЕНИЕ: Мгновенно привязываем эмулятор к геймпаду. 
+        // Теперь касания экрана безопасны в любую секунду работы приложения.
+        gamepad.setEmulator(emulator)
         layout.addView(gamepad)
 
         setContentView(layout)
-
-        emulator = EmulatorCore()
     }
 
     private fun setupFullScreen() {
@@ -102,7 +106,8 @@ class EmulatorActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     // Возвращаемся в главный поток (Main) для обновления UI и запуска
                     withContext(Dispatchers.Main) {
                         if (emulator.init(romPath, saveDir.absolutePath)) {
-                            gamepad.setEmulator(emulator)
+                            // Привязка gamepad.setEmulator(emulator) отсюда убрана,
+                            // так как она теперь выполняется мгновенно в onCreate()
                             emulator.start()
                         } else {
                             showError("Ошибка инициализации ядра эмулятора")
@@ -153,6 +158,20 @@ class EmulatorActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     private fun showError(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Хорошая практика: приостанавливать эмуляцию, если пользователь свернул приложение
+        emulator.stop()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Восстанавливаем эмуляцию при возврате в приложение (если Surface уже готова)
+        if (surfaceView.holder.surface.isValid) {
+            emulator.start()
+        }
     }
 
     override fun onDestroy() {
