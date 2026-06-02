@@ -12,8 +12,6 @@ extern "C" {
 #include "shared.h"
 
 // --- ОТМЕНА МАКРОСОВ LIBRETRO ---
-// Libretro (через shared.h) переопределяет стандартные функции работы с файлами.
-// Мы отменяем их, чтобы std::fopen, std::fread и стандартный FILE* компилировались без ошибок.
 #undef FILE
 #undef fopen
 #undef fclose
@@ -46,8 +44,10 @@ int64_t core_fsize(void *stream) {
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
+// --- СТАТИЧЕСКИЙ УКАЗАТЕЛЬ ---
+GenesisCore* GenesisCore::s_instance = nullptr;
+
 // --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ---
-static GenesisCore* s_instance = nullptr;
 static std::atomic<bool> g_player_buttons[2][8] = {};
 
 // --- СИНХРОНИЗАЦИЯ И ПУЛ АУДИО БУФЕРОВ ---
@@ -58,9 +58,9 @@ static int g_next_audio_buffer = 0;
 // --- РАБОЧИЕ КОЛЛБЭКИ LIBRETRO ---
 static bool libretro_environ(unsigned cmd, void *data) {
     if (cmd == 9) { // RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY
-        if (s_instance && data) {
+        if (GenesisCore::s_instance && data) {
             const char** dir = (const char**)data;
-            *dir = s_instance->save_path.c_str();
+            *dir = GenesisCore::s_instance->save_path.c_str();
             return true;
         }
     }
@@ -308,8 +308,7 @@ bool GenesisCore::saveState(int slot) {
     FILE* f = std::fopen(filepath, "wb");
     if (!f) return false;
 
-    // Выделяем память в куче, чтобы предотвратить Stack Overflow
-    std::vector<unsigned char> state_buffer(1024 * 1024 * 2); // 2 MB под сейвстейт
+    std::vector<unsigned char> state_buffer(1024 * 1024 * 2);
     int state_size = state_save(state_buffer.data());
     if (state_size > 0) {
         std::fwrite(state_buffer.data(), 1, state_size, f);
@@ -370,7 +369,6 @@ void GenesisCore::initOpenSLES() {
     g_free_audio_buffers = 4;
     g_next_audio_buffer = 0;
 
-    // Разогрев аудиосистемы
     int16_t silence[735 * 2] = {0};
     g_free_audio_buffers -= 2;
     (*player_buffer_queue)->Enqueue(player_buffer_queue, silence, sizeof(silence));
