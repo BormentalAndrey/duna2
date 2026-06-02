@@ -196,8 +196,20 @@ void GenesisCore::render() {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture_id);
     
-    // Загружаем пиксели формата RGB565 напрямую в видеопамять графического чипа
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, local_framebuffer);
+    // ОПТИМИЗАЦИЯ: Избегаем glTexImage2D на каждом кадре для защиты от просадок FPS (Thermal Throttling)
+    static int last_texture_width = 0;
+    static int last_texture_height = 0;
+
+    if (width != last_texture_width || height != last_texture_height) {
+        // Перевыделяем видеопамять только при физическом изменении разрешения игры
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, local_framebuffer);
+        last_texture_width = width;
+        last_texture_height = height;
+    } else {
+        // Быстрое обновление текстуры без переаллокации
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, local_framebuffer);
+    }
+    
     glUniform1i(glGetUniformLocation(program_id, "uTexture"), 0);
 
     glBindBuffer(GL_ARRAY_BUFFER, vbo_id);
