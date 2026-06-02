@@ -30,6 +30,7 @@ class GamepadView(context: Context) : View(context) {
     private val pressedButtons = mutableSetOf<EmulatorCore.GenesisButton>()
     
     fun setEmulator(emu: EmulatorCore) {
+        Log.i("Gamepad", "EmulatorCore attached to GamepadView successfully!")
         this.emulator = emu
     }
     
@@ -120,7 +121,6 @@ class GamepadView(context: Context) : View(context) {
             MotionEvent.ACTION_DOWN,
             MotionEvent.ACTION_POINTER_DOWN,
             MotionEvent.ACTION_MOVE -> {
-                // Проверяем ВСЕ активные касания
                 for (i in 0 until event.pointerCount) {
                     val x = event.getX(i)
                     val y = event.getY(i)
@@ -136,7 +136,6 @@ class GamepadView(context: Context) : View(context) {
             MotionEvent.ACTION_UP,
             MotionEvent.ACTION_POINTER_UP,
             MotionEvent.ACTION_CANCEL -> {
-                // Проверяем ОСТАВШИЕСЯ касания (кроме того что поднялось)
                 for (i in 0 until event.pointerCount) {
                     if (i == event.actionIndex) continue
                     
@@ -155,18 +154,23 @@ class GamepadView(context: Context) : View(context) {
         // Отправляем нажатие НОВЫХ кнопок
         for (btn in newPressed) {
             if (!pressedButtons.contains(btn)) {
-                emulator?.pressButton(0, btn)
+                if (emulator == null) {
+                    Log.e("Gamepad", "Cannot press ${btn.name}: Emulator is NULL (Did you call setEmulator?)")
+                } else {
+                    emulator?.pressButton(0, btn)
+                }
             }
         }
         
         // Отправляем отпускание СТАРЫХ кнопок
         for (btn in pressedButtons) {
             if (!newPressed.contains(btn)) {
-                emulator?.releaseButton(0, btn)
+                if (emulator != null) {
+                    emulator?.releaseButton(0, btn)
+                }
             }
         }
         
-        // Обновляем состояние
         pressedButtons.clear()
         pressedButtons.addAll(newPressed)
         
