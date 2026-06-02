@@ -1,9 +1,11 @@
 package com.dune2emu
 
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -50,6 +52,14 @@ class EmulatorActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     private fun setupFullScreen() {
         supportActionBar?.hide()
+
+        // Критично для Android 15+: разрешаем отрисовку под вырезом камеры.
+        // Без этого SurfaceView может получать некорректные insets, 
+        // что приводит к несовпадению размеров буфера и нативным крашам в C++.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+
         // Современный способ скрытия статус-бара и кнопок навигации (работает на Android 11+)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
@@ -72,6 +82,8 @@ class EmulatorActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
+        // Обязательно останавливаем нативный поток рендера перед уничтожением Surface,
+        // чтобы избежать SIGSEGV при попытке EGL/OpenGL отрисовать кадр в уничтоженное окно.
         emulator.stop()
     }
 
