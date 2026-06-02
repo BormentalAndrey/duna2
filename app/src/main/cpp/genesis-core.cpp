@@ -10,12 +10,24 @@
 extern "C" {
 #include "shared.h"
 
-// Объявляем только ту функцию, которой не оказалось в shared.h.
-// audio_init НЕ трогаем, так как ядро его уже импортировало из system.h автоматически.
-void system_frame(int skip);
+// Genesis Plus GX использует разные функции цикла для каждой консоли.
+// Для Sega Genesis / Mega Drive (и Dune II) нужна эта:
+void system_frame_gen(int skip);
+
+// Заглушка для libchdr. Требуется линкером из-за флага сборки -D__LIBRETRO__
+int64_t core_fsize(void *stream) {
+    if (!stream) return 0;
+    FILE *f = (FILE *)stream;
+    long current = ftell(f);
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, current, SEEK_SET);
+    return size;
 }
 
-// 2. Полностью нейтрализуем макросы Libretro, возвращая стандартный ввод-вывод std::
+}
+
+// Полностью нейтрализуем макросы Libretro, возвращая стандартный ввод-вывод std::
 #undef FILE
 #undef fopen
 #undef fclose
@@ -40,8 +52,7 @@ void system_frame(int skip);
 
 // Статический коллбек для очереди аудио OpenSLES
 static void bqPlayerCallback(SLAndroidSimpleBufferQueueItf bq, void *context) {
-    // В данной архитектуре мы пушим аудио синхронно в цикле runFrame, 
-    // данный коллбек необходим просто для поддержания работы механизма очереди.
+    // В данной архитектуре мы пушим аудио синхронно в цикле runFrame
 }
 
 GenesisCore::~GenesisCore() {
@@ -100,8 +111,8 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
 void GenesisCore::runFrame() {
     if (!initialized) return;
 
-    // Выполняем эмуляцию ровно одного кадра (отрисовка всех линий VDP + просчет логики m68k/z80)
-    system_frame(0);
+    // Выполняем эмуляцию ровно одного кадра специфично для Sega Genesis
+    system_frame_gen(0);
 
     // Копируем аудио-данные из внутреннего циклического буфера ядра в буфер OpenSLES
     int16_t audio_samples[2048];
@@ -177,13 +188,13 @@ void GenesisCore::render() {
     // Извлекаем актуальные границы вьюпорта кадра из ядра Genesis Plus GX
     int width = bitmap.viewport.w;
     int height = bitmap.viewport.h;
-    int pitch = bitmap.pitch; // Шаг в байтах между строками исходного буфера
+    int pitch = bitmap.pitch; 
 
-    // Преобразуем шаг из байт в пиксели (так как у нас USE_16BPP_RENDERING, 1 пиксель = 2 байта)
+    // Преобразуем шаг из байт в пиксели
     int pitch_pixels = pitch / 2;
     uint16_t* src_data = (uint16_t*)bitmap.data + (bitmap.viewport.y * pitch_pixels) + bitmap.viewport.x;
 
-    // Заполняем локальный непрерывный буфер для текстуры OpenGL, отсекая пустые служебные пиксели по краям
+    // Заполняем локальный буфер для текстуры OpenGL
     for (int y = 0; y < height; ++y) {
         std::memcpy(&local_framebuffer[y * width], &src_data[y * pitch_pixels], width * sizeof(uint16_t));
     }
@@ -196,17 +207,15 @@ void GenesisCore::render() {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture_id);
     
-    // ОПТИМИЗАЦИЯ: Избегаем glTexImage2D на каждом кадре для защиты от просадок FPS (Thermal Throttling)
+    // ОПТИМИЗАЦИЯ: Избегаем glTexImage2D на каждом кадре
     static int last_texture_width = 0;
     static int last_texture_height = 0;
 
     if (width != last_texture_width || height != last_texture_height) {
-        // Перевыделяем видеопамять только при физическом изменении разрешения игры
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, local_framebuffer);
         last_texture_width = width;
         last_texture_height = height;
     } else {
-        // Быстрое обновление текстуры без переаллокации
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, local_framebuffer);
     }
     
@@ -230,7 +239,6 @@ void GenesisCore::setButton(int player, int button, bool pressed) {
 
     uint16_t sega_mask = 0;
     
-    // Маппинг переданных идентификаторов абстрактных кнопок к маске Sega Genesis
     switch (button) {
         case 0: sega_mask = SEGA_UP;    break;
         case 1: sega_mask = SEGA_DOWN;  break;
@@ -243,7 +251,6 @@ void GenesisCore::setButton(int player, int button, bool pressed) {
         default: return;
     }
 
-    // Запись битов напрямую во внутреннюю структуру ввода ядра эмулятора
     if (pressed) {
         input.pad[player] |= sega_mask;
     } else {
@@ -260,8 +267,7 @@ bool GenesisCore::saveState(int slot) {
     FILE* f = std::fopen(filepath, "wb");
     if (!f) return false;
 
-    // Получаем точный снимок ОЗУ, VRAM и регистров чипов
-    unsigned char state_buffer[1024 * 512]; // 512KB с запасом под стейт Sega Genesis
+    unsigned char state_buffer[1024 * 512]; 
     int state_size = state_save(state_buffer);
     
     if (state_size > 0) {
@@ -290,14 +296,12 @@ bool GenesisCore::loadState(int slot) {
     std::fclose(f);
 
     if (read_bytes > 0) {
-        // Загружаем стейт обратно в память эмулятора
         return state_load(state_buffer.data()) > 0;
     }
     return false;
 }
 
 void GenesisCore::initOpenSLES() {
-    // Шаблон развертывания аудио-движка OpenSLES на Android
     slCreateEngine(&engine_object, 0, nullptr, 0, nullptr, nullptr);
     (*engine_object)->Realize(engine_object, SL_BOOLEAN_FALSE);
     (*engine_object)->GetInterface(engine_object, SL_IID_ENGINE, &engine_interface);
@@ -307,7 +311,6 @@ void GenesisCore::initOpenSLES() {
 
     SLDataLocator_AndroidSimpleBufferQueue loc_bufq = { SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE, 2 };
     
-    // Настройка аудио-потока PCM Stereo, 44100 Гц, 16-бит
     SLDataFormat_PCM format_pcm = {
         SL_DATAFORMAT_PCM, 2, SL_SAMPLINGRATE_44_1,
         SL_PCMSAMPLEFORMAT_FIXED_16, SL_PCMSAMPLEFORMAT_FIXED_16,
@@ -331,7 +334,6 @@ void GenesisCore::initOpenSLES() {
     (*player_buffer_queue)->RegisterCallback(player_buffer_queue, bqPlayerCallback, this);
     (*player_play)->SetPlayState(player_play, SL_PLAYSTATE_PLAYING);
 
-    // Пушим первичную тишину для разогрева аудиотрека
     int16_t silence[441 * 2] = {0};
     (*player_buffer_queue)->Enqueue(player_buffer_queue, silence, sizeof(silence));
 }
