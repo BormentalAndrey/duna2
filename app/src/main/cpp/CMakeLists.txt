@@ -11,7 +11,8 @@ file(GLOB_RECURSE ALL_C_FILES
 # ИСКЛЮЧАЕМ папки и файлы, которые не нужны или ломают сборку на Android
 list(FILTER ALL_C_FILES EXCLUDE REGEX ".*/libretro/deps/.*")
 list(FILTER ALL_C_FILES EXCLUDE REGEX ".*/async_stream\\.c$")
-list(FILTER ALL_C_FILES EXCLUDE REGEX ".*/libretro-common/cdrom/.*") # Исключаем физический CD-ROM
+list(FILTER ALL_C_FILES EXCLUDE REGEX ".*/libretro-common/cdrom/.*")
+list(FILTER ALL_C_FILES EXCLUDE REGEX ".*/vfs_implementation_cdrom\\.c$") # Исключаем физический CD-ROM VFS
 
 # Наши файлы моста
 set(OUR_SRC emulator-bridge.cpp genesis-core.cpp)
