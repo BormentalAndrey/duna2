@@ -3974,7 +3974,6 @@ void retro_run(void)
    }
 
    soundbuffer_size = audio_update(soundbuffer);
-}
    /* Force viewport update when SMS border changes after startup undetected */
    if (     ((system_hw == SYSTEM_MARKIII) || (system_hw & SYSTEM_SMS) || (system_hw == SYSTEM_PBC))
          && reg[0] != reg0_prev)
