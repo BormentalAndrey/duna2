@@ -193,7 +193,7 @@ void GenesisCore::render() {
 
     glUseProgram(program_id);
 
-    glActiveTexture(GL_TEXTURE_0);
+    glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture_id);
     
     // Загружаем пиксели формата RGB565 напрямую в видеопамять графического чипа
