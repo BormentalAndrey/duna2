@@ -112,41 +112,47 @@ class GamepadView(context: Context) : View(context) {
     }
     
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        val x = event.x
-        val y = event.y
         val newPressed = mutableSetOf<EmulatorCore.GenesisButton>()
         
-        when (event.action) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
-                for (button in buttons) {
-                    if (button.rect.contains(x, y)) {
-                        newPressed.add(button.button)
-                        
-                        // Нажатие новой кнопки
-                        if (!pressedButtons.contains(button.button)) {
-                            emulator?.pressButton(0, button.button)
-                        }
-                    }
-                }
-                
-                // Отпускание кнопок, которые больше не нажаты
-                for (pressed in pressedButtons) {
-                    if (!newPressed.contains(pressed)) {
-                        emulator?.releaseButton(0, pressed)
-                    }
-                }
-                
-                pressedButtons.clear()
-                pressedButtons.addAll(newPressed)
+        // Проходим по всем активным касаниям (Multi-Touch)
+        for (i in 0 until event.pointerCount) {
+            val action = event.actionMasked
+            
+            // Игнорируем палец, который прямо сейчас отрывается от экрана
+            if ((action == MotionEvent.ACTION_POINTER_UP || 
+                 action == MotionEvent.ACTION_UP || 
+                 action == MotionEvent.ACTION_CANCEL) && 
+                i == event.actionIndex) {
+                continue
             }
             
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                for (pressed in pressedButtons) {
-                    emulator?.releaseButton(0, pressed)
+            val x = event.getX(i)
+            val y = event.getY(i)
+            
+            for (button in buttons) {
+                if (button.rect.contains(x, y)) {
+                    newPressed.add(button.button)
                 }
-                pressedButtons.clear()
             }
         }
+        
+        // 1. Отправляем в ядро нажатие НОВЫХ кнопок
+        for (btn in newPressed) {
+            if (!pressedButtons.contains(btn)) {
+                emulator?.pressButton(0, btn)
+            }
+        }
+        
+        // 2. Отправляем в ядро отпускание СТАРЫХ кнопок
+        for (btn in pressedButtons) {
+            if (!newPressed.contains(btn)) {
+                emulator?.releaseButton(0, btn)
+            }
+        }
+        
+        // Обновляем текущее состояние
+        pressedButtons.clear()
+        pressedButtons.addAll(newPressed)
         
         invalidate()
         return true
