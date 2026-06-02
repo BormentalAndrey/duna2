@@ -43,7 +43,6 @@ static size_t dummy_audio_batch(const int16_t *data, size_t frames) { return fra
 static void dummy_input_poll(void) {}
 static int16_t dummy_input_state(unsigned port, unsigned device, unsigned index, unsigned id) { return 0; }
 
-
 // Полностью нейтрализуем макросы Libretro для стандартного ввода-вывода
 #undef FILE
 #undef fopen
@@ -83,7 +82,6 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
     save_path = save_dir;
 
     // 0. НЕЙТРАЛИЗУЕМ LIBRETRO
-    // Скажем обёртке libretro.c использовать наши пустые функции. Это устраняет краш в osd_input_update()
     retro_set_environment(dummy_environ);
     retro_set_video_refresh(dummy_video);
     retro_set_audio_sample(dummy_audio);
@@ -112,12 +110,23 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
     audio_init(44100, 60.0);
     system_init();
 
+    // --- ФИКС КРЭША В remap_line ---
+    // Явно связываем глобальный графический контекст ядра с нашим локальным фреймбуфером
+    std::memset(local_framebuffer, 0, sizeof(local_framebuffer));
+    bitmap.width  = 320;
+    bitmap.height = 240;
+    bitmap.pitch  = 320 * sizeof(uint16_t); 
+    bitmap.data   = (uint8_t*)local_framebuffer;
+
+    // Заставляем VDP пересчитать внутренние указатели строк под новый адрес памяти
+    vdp_init();
+    // -------------------------------
+
     // 4. Безопасно сбрасываем процессоры эмулятора
     system_reset();
 
-    // 5. Подготовка локального звукового и графического окружения Android
+    // 5. Подготовка локального звукового окружения Android
     initOpenSLES();
-    std::memset(local_framebuffer, 0, sizeof(local_framebuffer));
 
     initialized = true;
     LOGD("Genesis core engine started successfully.");
@@ -127,6 +136,7 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
 void GenesisCore::runFrame() {
     if (!initialized) return;
 
+    // Эмулятор рендерит кадр прямо в local_framebuffer
     system_frame_gen(0);
 
     int16_t audio_samples[2048];
@@ -184,6 +194,9 @@ void GenesisCore::initOpenGL() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    // Выделяем память под текстуру максимального поддерживаемого размера
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 320, 240, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, nullptr);
 }
 
 GLuint GenesisCore::compileShader(GLenum type, const char* source) {
@@ -198,15 +211,14 @@ void GenesisCore::render() {
 
     initOpenGL();
 
+    // Получаем текущие размеры экрана из вьюпорта Sega
     int width = bitmap.viewport.w;
     int height = bitmap.viewport.h;
-    int pitch = bitmap.pitch; 
 
-    int pitch_pixels = pitch / 2;
-    uint16_t* src_data = (uint16_t*)bitmap.data + (bitmap.viewport.y * pitch_pixels) + bitmap.viewport.x;
-
-    for (int y = 0; y < height; ++y) {
-        std::memcpy(&local_framebuffer[y * width], &src_data[y * pitch_pixels], width * sizeof(uint16_t));
+    // Защита от некорректных размеров
+    if (width <= 0 || height <= 0 || width > 320 || height > 240) {
+        width = 320;
+        height = 240;
     }
 
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -217,16 +229,11 @@ void GenesisCore::render() {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture_id);
     
-    static int last_texture_width = 0;
-    static int last_texture_height = 0;
-
-    if (width != last_texture_width || height != last_texture_height) {
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, local_framebuffer);
-        last_texture_width = width;
-        last_texture_height = height;
-    } else {
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, local_framebuffer);
-    }
+    // Обновляем только ту часть текстуры, которую эмулятор реально заполнил в local_framebuffer
+    // Нам больше не нужен memcpy, данные уже лежат там благодаря правильному bitmap.data
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 320);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, local_framebuffer);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
     
     glUniform1i(glGetUniformLocation(program_id, "uTexture"), 0);
 
@@ -238,6 +245,7 @@ void GenesisCore::render() {
 
     GLint tex_attrib = glGetAttribLocation(program_id, "vTexCoord");
     glEnableVertexAttribArray(tex_attrib);
+    // Корректируем текстурные координаты под реальное соотношение сторон активного вьюпорта
     glVertexAttribPointer(tex_attrib, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
 
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
