@@ -10,6 +10,7 @@
 
 #define LOG_TAG "Dune2Emu"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 static GenesisCore* g_emu = nullptr;
 static std::thread g_emu_thread;
@@ -77,9 +78,6 @@ Java_com_dune2emu_RetroBridge_startEmulation(JNIEnv* env, jobject thiz) {
         while (g_running) {
             bool frame_rendered = false;
             
-            // Мы блокируем мьютекс ТОЛЬКО на время просчета кадра, чтобы
-            // saveState и loadState из UI-потока не повредили память.
-            // При этом мы вынесли eglSwapBuffers за пределы мьютекса!
             {
                 std::lock_guard<std::mutex> lock(g_mutex);
                 if (g_emu) {
@@ -89,15 +87,10 @@ Java_com_dune2emu_RetroBridge_startEmulation(JNIEnv* env, jobject thiz) {
                 }
             }
 
-            // eglSwapBuffers может долго ждать VSync. Делаем это без мьютекса, 
-            // чтобы интерфейс (UI) не подвисал, если попытается вызвать JNI функции.
             if (frame_rendered && g_display != EGL_NO_DISPLAY) {
                 eglSwapBuffers(g_display, g_surface);
             }
             
-            // ОПТИМИЗАЦИЯ: заменяем yield() на sleep_for(). 
-            // yield() на Android может вызывать 100% нагрузку на ядро процессора, 
-            // что лишает UI-поток времени на обработку нажатий экрана.
             std::this_thread::sleep_for(std::chrono::milliseconds(1)); 
         }
 
@@ -131,10 +124,10 @@ Java_com_dune2emu_RetroBridge_stopEmulation(JNIEnv* env, jobject thiz) {
 
 JNIEXPORT void JNICALL
 Java_com_dune2emu_RetroBridge_setButtonState(JNIEnv* env, jobject thiz, jint player, jint button, jboolean pressed) {
-    // Внимание: блокировка убрана, как и было. Теперь это полностью безопасно, 
-    // так как внутри setButton используются атомарные операции.
     if (g_emu) {
         g_emu->setButton(player, button, pressed);
+    } else {
+        LOGE("JNI ERROR: setButtonState failed because g_emu is NULL!");
     }
 }
 
