@@ -8,6 +8,7 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
 import java.io.*
 import java.net.*
@@ -20,7 +21,7 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private var serverSocket: ServerSocket? = null
     private var clientSocket: Socket? = null
     private var isHost = false
-    private var playerIndex = 0 // 0 = host, 1 = client
+    private var playerIndex = 0
 
     private val TAG = "Multiplayer"
     private val PORT = 12345
@@ -51,13 +52,22 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 serverSocket = ServerSocket(PORT)
-                Log.d(TAG, "Waiting for client...")
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MultiplayerActivity, "Waiting for Player 2...\nPort: $PORT", Toast.LENGTH_LONG).show()
+                }
+                Log.d(TAG, "Host waiting on port $PORT...")
                 clientSocket = serverSocket?.accept()
                 Log.d(TAG, "Client connected!")
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MultiplayerActivity, "Player 2 connected!", Toast.LENGTH_SHORT).show()
+                }
                 startGame()
-                readClientInput()
+                readRemoteInput()
             } catch (e: Exception) {
                 Log.e(TAG, "Host error", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MultiplayerActivity, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -65,13 +75,28 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun startClient() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val hostIp = intent.getStringExtra("hostIp") ?: return@launch
+                val hostIp = intent.getStringExtra("hostIp")
+                if (hostIp.isNullOrEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@MultiplayerActivity, "No host IP provided", Toast.LENGTH_LONG).show()
+                    }
+                    return@launch
+                }
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MultiplayerActivity, "Connecting to $hostIp...", Toast.LENGTH_SHORT).show()
+                }
                 clientSocket = Socket(hostIp, PORT)
                 Log.d(TAG, "Connected to host!")
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MultiplayerActivity, "Connected to host!", Toast.LENGTH_SHORT).show()
+                }
                 startGame()
                 sendMyInput()
             } catch (e: Exception) {
                 Log.e(TAG, "Client error", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MultiplayerActivity, "Connection failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -81,13 +106,14 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val saveDir = File(filesDir, "saves").apply { mkdirs() }
 
         if (emulator.init(romPath, saveDir.absolutePath)) {
-            gamepad.setEmulator(emulator) { player, button, pressed ->
-                if (player == playerIndex) {
-                    sendInputToPeer(player, button.code, pressed)
-                }
-                emulator.setButton(player, button.code, pressed)
+            // Используем новый метод setEmulator с callback
+            gamepad.setEmulator(emulator, playerIndex) { player, button, pressed ->
+                // Отправляем свои кнопки удалённому игроку
+                sendInputToRemote(player, button.code, pressed)
             }
             emulator.start()
+        } else {
+            Toast.makeText(this@MultiplayerActivity, "Failed to load ROM", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -101,18 +127,19 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
         return outFile.absolutePath
     }
 
-    private suspend fun sendInputToPeer(player: Int, button: Int, pressed: Boolean) {
-        withContext(Dispatchers.IO) {
+    private fun sendInputToRemote(player: Int, buttonCode: Int, pressed: Boolean) {
+        lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val data = "$player,$button,${if (pressed) 1 else 0}\n"
+                val data = "$player,$buttonCode,${if (pressed) 1 else 0}\n"
                 clientSocket?.getOutputStream()?.write(data.toByteArray())
+                clientSocket?.getOutputStream()?.flush()
             } catch (e: Exception) {
                 Log.e(TAG, "Send error", e)
             }
         }
     }
 
-    private fun readClientInput() {
+    private fun readRemoteInput() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val reader = BufferedReader(InputStreamReader(clientSocket?.getInputStream()))
@@ -120,11 +147,12 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     val line = reader.readLine() ?: break
                     val parts = line.split(",")
                     if (parts.size == 3) {
-                        val player = parts[0].toInt()
-                        val button = parts[1].toInt()
+                        val remotePlayer = parts[0].toInt()
+                        val buttonCode = parts[1].toInt()
                         val pressed = parts[2] == "1"
-                        runOnUiThread {
-                            emulator.setButton(player, button, pressed)
+                        withContext(Dispatchers.Main) {
+                            // Применяем кнопки удалённого игрока
+                            emulator.setRemoteButton(remotePlayer, buttonCode, pressed)
                         }
                     }
                 }
@@ -135,8 +163,8 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private suspend fun sendMyInput() {
-        // Отправляем свои кнопки хосту
-        // Вызывается из gamepad callback
+        // Клиент постоянно слушает свой геймпад (коллбэк уже настроен в startGame)
+        // и отправляет кнопки хосту через sendInputToRemote
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
@@ -144,6 +172,7 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
+    
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         emulator.stop()
     }
