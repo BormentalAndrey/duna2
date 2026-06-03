@@ -1,4 +1,4 @@
-package com.dune2emu
+package com.mk3emu
 
 import android.content.Context
 import android.graphics.*
