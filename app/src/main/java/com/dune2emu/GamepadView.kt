@@ -9,6 +9,8 @@ import android.view.View
 class GamepadView(context: Context) : View(context) {
     
     private var emulator: EmulatorCore? = null
+    private var multiplayerCallback: ((Int, EmulatorCore.GenesisButton, Boolean) -> Unit)? = null
+    private var localPlayerIndex: Int = 0
     
     private val dpadPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(150, 255, 255, 255)
@@ -26,12 +28,13 @@ class GamepadView(context: Context) : View(context) {
     
     private data class Button(val rect: RectF, val label: String, val button: EmulatorCore.GenesisButton)
     private val buttons = mutableListOf<Button>()
-    
     private val pressedButtons = mutableSetOf<EmulatorCore.GenesisButton>()
     
-    fun setEmulator(emu: EmulatorCore) {
-        Log.i("Gamepad", "EmulatorCore attached to GamepadView successfully!")
+    fun setEmulator(emu: EmulatorCore, playerIndex: Int = 0, mpCallback: ((Int, EmulatorCore.GenesisButton, Boolean) -> Unit)? = null) {
         this.emulator = emu
+        this.localPlayerIndex = playerIndex
+        this.multiplayerCallback = mpCallback
+        Log.i("Gamepad", "EmulatorCore attached! Player: $playerIndex, Multiplayer: ${mpCallback != null}")
     }
     
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -42,74 +45,35 @@ class GamepadView(context: Context) : View(context) {
     private fun setupButtons(w: Float, h: Float) {
         buttons.clear()
         
-        // D-Pad
         val dpadCenterX = w * 0.2f
         val dpadCenterY = h * 0.75f
         val dpadSize = 120f
         
-        buttons.add(Button(
-            RectF(dpadCenterX - 30, dpadCenterY - dpadSize/2 - 30,
-                  dpadCenterX + 30, dpadCenterY - dpadSize/2 + 30),
-            "↑", EmulatorCore.GenesisButton.UP
-        ))
-        buttons.add(Button(
-            RectF(dpadCenterX - 30, dpadCenterY + dpadSize/2 - 30,
-                  dpadCenterX + 30, dpadCenterY + dpadSize/2 + 30),
-            "↓", EmulatorCore.GenesisButton.DOWN
-        ))
-        buttons.add(Button(
-            RectF(dpadCenterX - dpadSize/2 - 30, dpadCenterY - 30,
-                  dpadCenterX - dpadSize/2 + 30, dpadCenterY + 30),
-            "←", EmulatorCore.GenesisButton.LEFT
-        ))
-        buttons.add(Button(
-            RectF(dpadCenterX + dpadSize/2 - 30, dpadCenterY - 30,
-                  dpadCenterX + dpadSize/2 + 30, dpadCenterY + 30),
-            "→", EmulatorCore.GenesisButton.RIGHT
-        ))
+        buttons.add(Button(RectF(dpadCenterX - 30, dpadCenterY - dpadSize/2 - 30, dpadCenterX + 30, dpadCenterY - dpadSize/2 + 30), "↑", EmulatorCore.GenesisButton.UP))
+        buttons.add(Button(RectF(dpadCenterX - 30, dpadCenterY + dpadSize/2 - 30, dpadCenterX + 30, dpadCenterY + dpadSize/2 + 30), "↓", EmulatorCore.GenesisButton.DOWN))
+        buttons.add(Button(RectF(dpadCenterX - dpadSize/2 - 30, dpadCenterY - 30, dpadCenterX - dpadSize/2 + 30, dpadCenterY + 30), "←", EmulatorCore.GenesisButton.LEFT))
+        buttons.add(Button(RectF(dpadCenterX + dpadSize/2 - 30, dpadCenterY - 30, dpadCenterX + dpadSize/2 + 30, dpadCenterY + 30), "→", EmulatorCore.GenesisButton.RIGHT))
         
-        // Action buttons
         val btnSize = 70f
         val btnStartX = w * 0.8f
         val btnStartY = h * 0.7f
         
-        buttons.add(Button(
-            RectF(btnStartX, btnStartY, btnStartX + btnSize, btnStartY + btnSize),
-            "A", EmulatorCore.GenesisButton.A
-        ))
-        buttons.add(Button(
-            RectF(btnStartX - btnSize * 1.2f, btnStartY - btnSize * 0.5f,
-                  btnStartX - btnSize * 1.2f + btnSize, btnStartY - btnSize * 0.5f + btnSize),
-            "B", EmulatorCore.GenesisButton.B
-        ))
-        buttons.add(Button(
-            RectF(btnStartX + btnSize * 1.2f, btnStartY - btnSize * 0.5f,
-                  btnStartX + btnSize * 1.2f + btnSize, btnStartY - btnSize * 0.5f + btnSize),
-            "C", EmulatorCore.GenesisButton.C
-        ))
-        
-        // Start button
-        buttons.add(Button(
-            RectF(w/2 - 50, h - 80, w/2 + 50, h - 40),
-            "START", EmulatorCore.GenesisButton.START
-        ))
+        buttons.add(Button(RectF(btnStartX, btnStartY, btnStartX + btnSize, btnStartY + btnSize), "A", EmulatorCore.GenesisButton.A))
+        buttons.add(Button(RectF(btnStartX - btnSize * 1.2f, btnStartY - btnSize * 0.5f, btnStartX - btnSize * 1.2f + btnSize, btnStartY - btnSize * 0.5f + btnSize), "B", EmulatorCore.GenesisButton.B))
+        buttons.add(Button(RectF(btnStartX + btnSize * 1.2f, btnStartY - btnSize * 0.5f, btnStartX + btnSize * 1.2f + btnSize, btnStartY - btnSize * 0.5f + btnSize), "C", EmulatorCore.GenesisButton.C))
+        buttons.add(Button(RectF(w/2 - 50, h - 80, w/2 + 50, h - 40), "START", EmulatorCore.GenesisButton.START))
     }
     
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        
         for (button in buttons) {
             val paint = if (pressedButtons.contains(button.button)) {
                 buttonPaint.apply { alpha = 255 }
             } else {
                 buttonPaint.apply { alpha = 150 }
             }
-            
             canvas.drawRoundRect(button.rect, 15f, 15f, paint)
-            canvas.drawText(button.label,
-                button.rect.centerX(),
-                button.rect.centerY() + 8,
-                textPaint)
+            canvas.drawText(button.label, button.rect.centerX(), button.rect.centerY() + 8, textPaint)
         }
     }
     
@@ -118,13 +82,10 @@ class GamepadView(context: Context) : View(context) {
         val action = event.actionMasked
         
         when (action) {
-            MotionEvent.ACTION_DOWN,
-            MotionEvent.ACTION_POINTER_DOWN,
-            MotionEvent.ACTION_MOVE -> {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_MOVE -> {
                 for (i in 0 until event.pointerCount) {
                     val x = event.getX(i)
                     val y = event.getY(i)
-                    
                     for (button in buttons) {
                         if (button.rect.contains(x, y)) {
                             newPressed.add(button.button)
@@ -132,16 +93,11 @@ class GamepadView(context: Context) : View(context) {
                     }
                 }
             }
-            
-            MotionEvent.ACTION_UP,
-            MotionEvent.ACTION_POINTER_UP,
-            MotionEvent.ACTION_CANCEL -> {
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
                 for (i in 0 until event.pointerCount) {
                     if (i == event.actionIndex) continue
-                    
                     val x = event.getX(i)
                     val y = event.getY(i)
-                    
                     for (button in buttons) {
                         if (button.rect.contains(x, y)) {
                             newPressed.add(button.button)
@@ -151,29 +107,22 @@ class GamepadView(context: Context) : View(context) {
             }
         }
         
-        // Отправляем нажатие НОВЫХ кнопок
         for (btn in newPressed) {
             if (!pressedButtons.contains(btn)) {
-                if (emulator == null) {
-                    Log.e("Gamepad", "Cannot press ${btn.name}: Emulator is NULL (Did you call setEmulator?)")
-                } else {
-                    emulator?.pressButton(0, btn)
-                }
+                emulator?.pressButton(localPlayerIndex, btn)
+                multiplayerCallback?.invoke(localPlayerIndex, btn, true)
             }
         }
         
-        // Отправляем отпускание СТАРЫХ кнопок
         for (btn in pressedButtons) {
             if (!newPressed.contains(btn)) {
-                if (emulator != null) {
-                    emulator?.releaseButton(0, btn)
-                }
+                emulator?.releaseButton(localPlayerIndex, btn)
+                multiplayerCallback?.invoke(localPlayerIndex, btn, false)
             }
         }
         
         pressedButtons.clear()
         pressedButtons.addAll(newPressed)
-        
         invalidate()
         return true
     }
