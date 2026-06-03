@@ -9,8 +9,11 @@
 #include <stdatomic.h>
 #include "genesis-core.hpp"
 
-// Общая переменная с emulator-bridge.cpp
+// Глобальные переменные из emulator-bridge.cpp
 extern atomic_uint g_android_pads[2];
+
+// Глобальный фреймбуфер (определён в emulator-bridge.cpp)
+extern uint16_t local_framebuffer[320 * 240];
 
 extern "C" {
 #include "shared.h"
@@ -68,43 +71,42 @@ static void libretro_audio(int16_t left, int16_t right) {}
 static size_t libretro_audio_batch(const int16_t *data, size_t frames) { return frames; }
 static void libretro_input_poll(void) {}
 
-// Идеальный маппинг: связывает биты Android с константами RETRO_DEVICE_ID
 static int16_t libretro_input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
     if (port < 2 && device == 1) {
         unsigned int pad = atomic_load(&g_android_pads[port]);
         
-        // Для поддержки блочного чтения масок (если включено в libretro)
-        if (id == 256) { 
+        // Битовая маска (osd_input_update_internal_bitmasks)
+        if (id == RETRO_DEVICE_ID_JOYPAD_MASK) {
             int16_t mask = 0;
-            if ((pad >> 0) & 1)  mask |= (1 << 4);  // UP
-            if ((pad >> 1) & 1)  mask |= (1 << 5);  // DOWN
-            if ((pad >> 2) & 1)  mask |= (1 << 6);  // LEFT
-            if ((pad >> 3) & 1)  mask |= (1 << 7);  // RIGHT
-            if ((pad >> 4) & 1)  mask |= (1 << 1);  // A (Retro Y)
-            if ((pad >> 5) & 1)  mask |= (1 << 0);  // B (Retro B)
-            if ((pad >> 6) & 1)  mask |= (1 << 8);  // C (Retro A)
-            if ((pad >> 7) & 1)  mask |= (1 << 3);  // START
-            if ((pad >> 8) & 1)  mask |= (1 << 10); // X (Retro L)
-            if ((pad >> 9) & 1)  mask |= (1 << 9);  // Y (Retro X)
-            if ((pad >> 10) & 1) mask |= (1 << 11); // Z (Retro R)
-            if ((pad >> 11) & 1) mask |= (1 << 2);  // MODE (Retro SELECT)
+            if ((pad >> 0) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_UP);
+            if ((pad >> 1) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_DOWN);
+            if ((pad >> 2) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_LEFT);
+            if ((pad >> 3) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_RIGHT);
+            if ((pad >> 4) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_Y);     // A
+            if ((pad >> 5) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_B);     // B
+            if ((pad >> 6) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_A);     // C
+            if ((pad >> 7) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_START);
+            if ((pad >> 8) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_L);     // X
+            if ((pad >> 9) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_X);     // Y
+            if ((pad >> 10) & 1) mask |= (1 << RETRO_DEVICE_ID_JOYPAD_R);     // Z
+            if ((pad >> 11) & 1) mask |= (1 << RETRO_DEVICE_ID_JOYPAD_SELECT); // MODE
             return mask;
         }
         
-        // Индивидуальный опрос кнопок ядром эмулятора
+        // Одиночные кнопки
         switch (id) {
-            case 4:  return (pad >> 0) & 1;  // RETRO_DEVICE_ID_JOYPAD_UP
-            case 5:  return (pad >> 1) & 1;  // RETRO_DEVICE_ID_JOYPAD_DOWN
-            case 6:  return (pad >> 2) & 1;  // RETRO_DEVICE_ID_JOYPAD_LEFT
-            case 7:  return (pad >> 3) & 1;  // RETRO_DEVICE_ID_JOYPAD_RIGHT
-            case 1:  return (pad >> 4) & 1;  // RETRO_DEVICE_ID_JOYPAD_Y (MegaDrive A)
-            case 0:  return (pad >> 5) & 1;  // RETRO_DEVICE_ID_JOYPAD_B (MegaDrive B)
-            case 8:  return (pad >> 6) & 1;  // RETRO_DEVICE_ID_JOYPAD_A (MegaDrive C)
-            case 3:  return (pad >> 7) & 1;  // RETRO_DEVICE_ID_JOYPAD_START
-            case 10: return (pad >> 8) & 1;  // RETRO_DEVICE_ID_JOYPAD_L (MegaDrive X)
-            case 9:  return (pad >> 9) & 1;  // RETRO_DEVICE_ID_JOYPAD_X (MegaDrive Y)
-            case 11: return (pad >> 10) & 1; // RETRO_DEVICE_ID_JOYPAD_R (MegaDrive Z)
-            case 2:  return (pad >> 11) & 1; // RETRO_DEVICE_ID_JOYPAD_SELECT (MegaDrive MODE)
+            case RETRO_DEVICE_ID_JOYPAD_UP:     return (pad >> 0) & 1;
+            case RETRO_DEVICE_ID_JOYPAD_DOWN:   return (pad >> 1) & 1;
+            case RETRO_DEVICE_ID_JOYPAD_LEFT:   return (pad >> 2) & 1;
+            case RETRO_DEVICE_ID_JOYPAD_RIGHT:  return (pad >> 3) & 1;
+            case RETRO_DEVICE_ID_JOYPAD_Y:      return (pad >> 4) & 1;  // A
+            case RETRO_DEVICE_ID_JOYPAD_B:      return (pad >> 5) & 1;  // B
+            case RETRO_DEVICE_ID_JOYPAD_A:      return (pad >> 6) & 1;  // C
+            case RETRO_DEVICE_ID_JOYPAD_START:  return (pad >> 7) & 1;
+            case RETRO_DEVICE_ID_JOYPAD_L:      return (pad >> 8) & 1;  // X
+            case RETRO_DEVICE_ID_JOYPAD_X:      return (pad >> 9) & 1;  // Y
+            case RETRO_DEVICE_ID_JOYPAD_R:      return (pad >> 10) & 1; // Z
+            case RETRO_DEVICE_ID_JOYPAD_SELECT: return (pad >> 11) & 1; // MODE
         }
     }
     return 0;
@@ -145,10 +147,8 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
     config.vdp_mode = 0;
     config.master_clock = 0;
 
-    // КРИТИЧЕСКИЙ ФИКС: Принудительно сообщаем конфигу, что у нас 6-кнопочные геймпады
-    // Без этого io_init() будет эмулировать 3-кнопочные, и игра аппаратно не увидит X,Y,Z
     for (int i = 0; i < 8; i++) {
-        config.input[i].padtype = DEVICE_PAD6B; 
+        config.input[i].padtype = DEVICE_PAD6B;
     }
 
     if (!load_rom((char*)rom_path.c_str())) {
@@ -165,11 +165,11 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
 
     system_init();
 
-    std::memset(local_framebuffer, 0, sizeof(local_framebuffer));
+    std::memset(::local_framebuffer, 0, sizeof(::local_framebuffer));
     bitmap.width  = 320;
     bitmap.height = 240;
     bitmap.pitch  = 320 * sizeof(uint16_t);
-    bitmap.data   = (uint8_t*)local_framebuffer;
+    bitmap.data   = (uint8_t*)::local_framebuffer;
     vdp_init();
 
     system_reset();
@@ -183,8 +183,6 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
 void GenesisCore::runFrame() {
     if (!initialized) return;
 
-    // system_frame_gen вызывает osd_input_update_internal, которая
-    // корректно заполняет input.pad[i] вызывая наш libretro_input_state
     system_frame_gen(0);
 
     int16_t temp_samples[2048];
@@ -239,7 +237,7 @@ void GenesisCore::render() {
     glClearColor(0,0,0,1); glClear(GL_COLOR_BUFFER_BIT); glUseProgram(program_id);
     glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, texture_id);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 320);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, local_framebuffer);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, ::local_framebuffer);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
     glUniform1i(glGetUniformLocation(program_id, "uTexture"), 0);
     glBindBuffer(GL_ARRAY_BUFFER, vbo_id);
