@@ -1,6 +1,7 @@
 package com.dune2emu
 
 import android.content.Context
+import android.graphics.*
 import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.text.format.Formatter
@@ -28,6 +29,7 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     private val TAG = "Multiplayer"
     private val PORT = 12345
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isFilterBitmap = false }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,23 +72,24 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
         return "Unknown"
     }
 
-    // ==================== HOST ====================
+    // ==================== HOST (ИГРАЕТ + СТРИМИТ JPEG) ====================
     private fun startHost() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 serverSocket = ServerSocket(PORT)
                 val ip = getLocalIpAddress()
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MultiplayerActivity, "Your IP: $ip", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MultiplayerActivity, "Host IP: $ip", Toast.LENGTH_LONG).show()
                 }
                 clientSocket = serverSocket?.accept()
+                clientSocket?.tcpNoDelay = true
                 Log.d(TAG, "Client connected!")
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MultiplayerActivity, "Player 2 connected!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MultiplayerActivity, "Player 2 Joined!", Toast.LENGTH_SHORT).show()
                     startGameHost()
                 }
-                // Запускаем поток: читаем кнопки клиента + отправляем видео/звук
-                hostStreamLoop()
+                launch { hostInputLoop() }
+                hostVideoLoop()
             } catch (e: Exception) {
                 Log.e(TAG, "Host error", e)
             }
@@ -97,118 +100,98 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val romPath = extractRom()
         val saveDir = File(filesDir, "saves").apply { mkdirs() }
         if (emulator.init(romPath, saveDir.absolutePath)) {
-            // Хост использует свой геймпад (player 0)
-            gamepad.setEmulator(emulator, 0) { player, button, pressed ->
-                // Свои кнопки применяются сразу, никуда не отправляются
-            }
+            gamepad.setEmulator(emulator, 0)
             emulator.start()
         }
     }
 
-    private suspend fun hostStreamLoop() {
-        withContext(Dispatchers.IO) {
-            try {
-                val output = DataOutputStream(BufferedOutputStream(clientSocket?.getOutputStream()))
-                val input = DataInputStream(BufferedInputStream(clientSocket?.getInputStream()))
-                val stateFile = File(filesDir, "sync.state")
-
-                while (clientSocket?.isConnected == true) {
-                    // 1. Читаем кнопки от клиента
-                    if (input.available() > 0) {
-                        val msg = input.readUTF()
-                        val parts = msg.split(",")
-                        if (parts.size == 3) {
-                            val button = parts[1].toInt()
-                            val pressed = parts[2] == "1"
-                            withContext(Dispatchers.Main) {
-                                // Кнопки клиента = player 1
-                                emulator.setRemoteButton(1, button, pressed)
-                            }
-                        }
+    private suspend fun hostInputLoop() {
+        val input = DataInputStream(BufferedInputStream(clientSocket?.getInputStream()))
+        try {
+            while (clientSocket?.isConnected == true) {
+                if (input.available() > 0) {
+                    val msg = input.readUTF()
+                    val parts = msg.split(",")
+                    if (parts.size == 3) {
+                        val button = parts[1].toInt()
+                        val pressed = parts[2] == "1"
+                        emulator.setRemoteButton(1, button, pressed)
                     }
-
-                    // 2. Сохраняем сейвстейт и отправляем клиенту
-                    withContext(Dispatchers.Main) { emulator.saveState(0) }
-                    if (stateFile.exists()) {
-                        val data = stateFile.readBytes()
-                        output.writeInt(data.size)
-                        output.write(data)
-                        output.flush()
-                    }
-
-                    Thread.sleep(16)
+                } else {
+                    delay(2)
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Host stream error: ${e.message}")
             }
-        }
+        } catch (e: Exception) { Log.e(TAG, "Host input error", e) }
     }
 
-    // ==================== CLIENT (только геймпад + видео) ====================
+    private suspend fun hostVideoLoop() {
+        val output = DataOutputStream(BufferedOutputStream(clientSocket?.getOutputStream()))
+        val jpegStream = ByteArrayOutputStream()
+        try {
+            while (clientSocket?.isConnected == true) {
+                val bitmap = withContext(Dispatchers.Main) { emulator.getCurrentFrameBitmap() }
+                if (bitmap != null) {
+                    jpegStream.reset()
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 60, jpegStream)
+                    val data = jpegStream.toByteArray()
+                    output.writeInt(data.size)
+                    output.write(data)
+                    output.flush()
+                }
+                delay(16)
+            }
+        } catch (e: Exception) { Log.e(TAG, "Host video error", e) }
+    }
+
+    // ==================== CLIENT (ДИСПЛЕЙ + ГЕЙМПАД) ====================
     private fun startClient() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val hostIp = intent.getStringExtra("hostIp") ?: return@launch
                 clientSocket = Socket(hostIp, PORT)
+                clientSocket?.tcpNoDelay = true
                 Log.d(TAG, "Connected to host!")
                 withContext(Dispatchers.Main) {
                     Toast.makeText(this@MultiplayerActivity, "Connected!", Toast.LENGTH_SHORT).show()
-                    startGameClient()
+                    gamepad.setEmulator(emulator, 1) { _, button, pressed ->
+                        sendButtonToHost(button.code, pressed)
+                    }
                 }
-                // Запускаем поток: получаем видео + отправляем кнопки
-                clientStreamLoop()
+                clientVideoLoop()
             } catch (e: Exception) {
                 Log.e(TAG, "Client error", e)
             }
         }
     }
 
-    private suspend fun startGameClient() = withContext(Dispatchers.Main) {
-        val romPath = extractRom()
-        val saveDir = File(filesDir, "saves").apply { mkdirs() }
-        if (emulator.init(romPath, saveDir.absolutePath)) {
-            // Клиент использует свой геймпад (player 1), кнопки отправляются хосту
-            gamepad.setEmulator(emulator, 1) { player, button, pressed ->
-                sendButtonToHost(button.code, pressed)
-            }
-            // Клиент НЕ запускает эмуляцию — только рендерит сейвстейты
-        }
-    }
-
-    private suspend fun clientStreamLoop() {
-        withContext(Dispatchers.IO) {
-            try {
-                val input = DataInputStream(BufferedInputStream(clientSocket?.getInputStream()))
-                val stateFile = File(filesDir, "sync.state")
-
-                while (clientSocket?.isConnected == true) {
-                    // Получаем сейвстейт от хоста
-                    val size = input.readInt()
+    private suspend fun clientVideoLoop() {
+        val input = DataInputStream(BufferedInputStream(clientSocket?.getInputStream()))
+        try {
+            while (clientSocket?.isConnected == true) {
+                val size = input.readInt()
+                if (size > 0) {
                     val data = ByteArray(size)
                     input.readFully(data)
-                    stateFile.writeBytes(data)
-
-                    // Загружаем и рендерим
-                    withContext(Dispatchers.Main) {
-                        emulator.loadState(0)
+                    val bitmap = BitmapFactory.decodeByteArray(data, 0, size)
+                    val canvas = surfaceView.holder.lockCanvas()
+                    if (canvas != null && bitmap != null) {
+                        canvas.drawBitmap(bitmap, null, Rect(0, 0, canvas.width, canvas.height), paint)
+                        surfaceView.holder.unlockCanvasAndPost(canvas)
                     }
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Client stream error: ${e.message}")
             }
-        }
+        } catch (e: Exception) { Log.e(TAG, "Client video error", e) }
     }
 
     private fun sendButtonToHost(buttonCode: Int, pressed: Boolean) {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val msg = "1,$buttonCode,${if (pressed) 1 else 0}"
-                val output = DataOutputStream(clientSocket?.getOutputStream())
-                output.writeUTF(msg)
-                output.flush()
-            } catch (e: Exception) {
-                Log.e(TAG, "Send button error: ${e.message}")
-            }
+                DataOutputStream(BufferedOutputStream(clientSocket?.getOutputStream())).use {
+                    it.writeUTF(msg)
+                    it.flush()
+                }
+            } catch (e: Exception) { Log.e(TAG, "Send error", e) }
         }
     }
 
@@ -224,12 +207,12 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
-        emulator.setSurface(holder.surface)
+        if (isHost) emulator.setSurface(holder.surface)
     }
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
     override fun surfaceDestroyed(holder: SurfaceHolder) {}
     override fun onDestroy() {
-        emulator.stop()
+        if (isHost) emulator.stop()
         try { serverSocket?.close() } catch (e: Exception) {}
         try { clientSocket?.close() } catch (e: Exception) {}
         super.onDestroy()
