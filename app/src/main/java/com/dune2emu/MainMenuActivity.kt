@@ -12,9 +12,14 @@ class MainMenuActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Создаем макет и сразу задаем ему фон
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(100, 200, 100, 200)
+            
+            // Установка картинки i.png как фона
+            // R.drawable.i ссылается на app/src/main/res/drawable/i.png
+            setBackgroundResource(R.drawable.i)
         }
 
         val btnSingle = Button(this).apply {
@@ -43,6 +48,7 @@ class MainMenuActivity : AppCompatActivity() {
         layout.addView(btnSingle)
         layout.addView(btnHost)
         layout.addView(btnJoin)
+        
         setContentView(layout)
     }
 
