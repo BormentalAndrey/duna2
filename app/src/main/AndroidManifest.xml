@@ -24,7 +24,7 @@
         android:usesCleartextTraffic="true">
         
         <activity
-            android:name="com.dune2emu.MainMenuActivity"
+            android:name="com.mk3emu.MainMenuActivity"
             android:exported="true"
             android:screenOrientation="landscape">
             <intent-filter>
@@ -34,7 +34,7 @@
         </activity>
         
         <activity
-            android:name="com.dune2emu.EmulatorActivity"
+            android:name="com.mk3emu.EmulatorActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout"
             android:screenOrientation="landscape"
