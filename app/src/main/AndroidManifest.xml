@@ -17,11 +17,12 @@
     <application
         android:allowBackup="true"
         android:label="Dune 2 Emulator"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.NoActionBar"
         android:usesCleartextTraffic="true">
         
-        <!-- Главное меню -->
         <activity
             android:name="com.dune2emu.MainMenuActivity"
             android:exported="true"
@@ -32,7 +33,6 @@
             </intent-filter>
         </activity>
         
-        <!-- Одиночная игра -->
         <activity
             android:name="com.dune2emu.EmulatorActivity"
             android:exported="true"
@@ -46,7 +46,6 @@
             </intent-filter>
         </activity>
         
-        <!-- Мультиплеер -->
         <activity
             android:name="com.dune2emu.MultiplayerActivity"
             android:exported="false"
