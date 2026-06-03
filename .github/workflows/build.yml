@@ -59,15 +59,21 @@ jobs:
         key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
         restore-keys: ${{ runner.os }}-gradle-
     
-    - name: Build Debug APK
+    - name: Build Release APK
       run: |
-        ./gradlew assembleDebug --no-daemon --stacktrace
+        ./gradlew assembleRelease --no-daemon --stacktrace
+      env:
+        # Эти переменные должны соответствовать именам в вашем build.gradle 
+        # (если вы используете gradle.properties или прямое чтение)
+        MYAPP_RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+        MYAPP_RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        MYAPP_RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
     
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: Dune2Emulator-APK
-        path: app/build/outputs/apk/debug/*.apk
+        name: MK3-Emulator-Release
+        path: app/build/outputs/apk/release/*.apk
         retention-days: 30
     
     - name: Upload Build Log
