@@ -46,20 +46,6 @@ int64_t core_fsize(void *stream) {
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
-// Жестко заданные ID кнопок libretro (чтобы избежать конфликтов заголовков)
-#define RETRO_ID_B 0
-#define RETRO_ID_Y 1
-#define RETRO_ID_SELECT 2
-#define RETRO_ID_START 3
-#define RETRO_ID_UP 4
-#define RETRO_ID_DOWN 5
-#define RETRO_ID_LEFT 6
-#define RETRO_ID_RIGHT 7
-#define RETRO_ID_A 8
-#define RETRO_ID_X 9
-#define RETRO_ID_L 10
-#define RETRO_ID_R 11
-
 GenesisCore* GenesisCore::s_instance = nullptr;
 
 static std::atomic<int> g_free_audio_buffers(4);
@@ -82,42 +68,43 @@ static void libretro_audio(int16_t left, int16_t right) {}
 static size_t libretro_audio_batch(const int16_t *data, size_t frames) { return frames; }
 static void libretro_input_poll(void) {}
 
+// Идеальный маппинг: связывает биты Android с константами RETRO_DEVICE_ID
 static int16_t libretro_input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
-    if (port < 2 && device == 1) { // 1 = RETRO_DEVICE_JOYPAD
+    if (port < 2 && device == 1) {
         unsigned int pad = atomic_load(&g_android_pads[port]);
         
-        // Для масочного опроса
-        if (id == 256 /* RETRO_DEVICE_ID_JOYPAD_MASK */) {
+        // Для поддержки блочного чтения масок (если включено в libretro)
+        if (id == 256) { 
             int16_t mask = 0;
-            if ((pad >> 0) & 1)  mask |= (1 << RETRO_ID_UP);
-            if ((pad >> 1) & 1)  mask |= (1 << RETRO_ID_DOWN);
-            if ((pad >> 2) & 1)  mask |= (1 << RETRO_ID_LEFT);
-            if ((pad >> 3) & 1)  mask |= (1 << RETRO_ID_RIGHT);
-            if ((pad >> 4) & 1)  mask |= (1 << RETRO_ID_Y);      // Genesis A = Retro Y
-            if ((pad >> 5) & 1)  mask |= (1 << RETRO_ID_B);      // Genesis B = Retro B
-            if ((pad >> 6) & 1)  mask |= (1 << RETRO_ID_A);      // Genesis C = Retro A
-            if ((pad >> 7) & 1)  mask |= (1 << RETRO_ID_START);
-            if ((pad >> 8) & 1)  mask |= (1 << RETRO_ID_L);      // Genesis X = Retro L
-            if ((pad >> 9) & 1)  mask |= (1 << RETRO_ID_X);      // Genesis Y = Retro X
-            if ((pad >> 10) & 1) mask |= (1 << RETRO_ID_R);      // Genesis Z = Retro R
-            if ((pad >> 11) & 1) mask |= (1 << RETRO_ID_SELECT); // Genesis MODE = Retro SELECT
+            if ((pad >> 0) & 1)  mask |= (1 << 4);  // UP
+            if ((pad >> 1) & 1)  mask |= (1 << 5);  // DOWN
+            if ((pad >> 2) & 1)  mask |= (1 << 6);  // LEFT
+            if ((pad >> 3) & 1)  mask |= (1 << 7);  // RIGHT
+            if ((pad >> 4) & 1)  mask |= (1 << 1);  // A (Retro Y)
+            if ((pad >> 5) & 1)  mask |= (1 << 0);  // B (Retro B)
+            if ((pad >> 6) & 1)  mask |= (1 << 8);  // C (Retro A)
+            if ((pad >> 7) & 1)  mask |= (1 << 3);  // START
+            if ((pad >> 8) & 1)  mask |= (1 << 10); // X (Retro L)
+            if ((pad >> 9) & 1)  mask |= (1 << 9);  // Y (Retro X)
+            if ((pad >> 10) & 1) mask |= (1 << 11); // Z (Retro R)
+            if ((pad >> 11) & 1) mask |= (1 << 2);  // MODE (Retro SELECT)
             return mask;
         }
         
-        // Покнопочный опрос (идеальный маппинг)
+        // Индивидуальный опрос кнопок ядром эмулятора
         switch (id) {
-            case RETRO_ID_UP:     return (pad >> 0) & 1;
-            case RETRO_ID_DOWN:   return (pad >> 1) & 1;
-            case RETRO_ID_LEFT:   return (pad >> 2) & 1;
-            case RETRO_ID_RIGHT:  return (pad >> 3) & 1;
-            case RETRO_ID_Y:      return (pad >> 4) & 1;  // Genesis A
-            case RETRO_ID_B:      return (pad >> 5) & 1;  // Genesis B
-            case RETRO_ID_A:      return (pad >> 6) & 1;  // Genesis C
-            case RETRO_ID_START:  return (pad >> 7) & 1;  // START
-            case RETRO_ID_L:      return (pad >> 8) & 1;  // Genesis X
-            case RETRO_ID_X:      return (pad >> 9) & 1;  // Genesis Y
-            case RETRO_ID_R:      return (pad >> 10) & 1; // Genesis Z
-            case RETRO_ID_SELECT: return (pad >> 11) & 1; // MODE
+            case 4:  return (pad >> 0) & 1;  // RETRO_DEVICE_ID_JOYPAD_UP
+            case 5:  return (pad >> 1) & 1;  // RETRO_DEVICE_ID_JOYPAD_DOWN
+            case 6:  return (pad >> 2) & 1;  // RETRO_DEVICE_ID_JOYPAD_LEFT
+            case 7:  return (pad >> 3) & 1;  // RETRO_DEVICE_ID_JOYPAD_RIGHT
+            case 1:  return (pad >> 4) & 1;  // RETRO_DEVICE_ID_JOYPAD_Y (MegaDrive A)
+            case 0:  return (pad >> 5) & 1;  // RETRO_DEVICE_ID_JOYPAD_B (MegaDrive B)
+            case 8:  return (pad >> 6) & 1;  // RETRO_DEVICE_ID_JOYPAD_A (MegaDrive C)
+            case 3:  return (pad >> 7) & 1;  // RETRO_DEVICE_ID_JOYPAD_START
+            case 10: return (pad >> 8) & 1;  // RETRO_DEVICE_ID_JOYPAD_L (MegaDrive X)
+            case 9:  return (pad >> 9) & 1;  // RETRO_DEVICE_ID_JOYPAD_X (MegaDrive Y)
+            case 11: return (pad >> 10) & 1; // RETRO_DEVICE_ID_JOYPAD_R (MegaDrive Z)
+            case 2:  return (pad >> 11) & 1; // RETRO_DEVICE_ID_JOYPAD_SELECT (MegaDrive MODE)
         }
     }
     return 0;
@@ -158,10 +145,11 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
     config.vdp_mode = 0;
     config.master_clock = 0;
 
-    // ВАЖНО: Принудительно задаем 6-кнопочный режим в конфигурации 
-    // до вызова system_init(), чтобы ядро не сбросило его на 3 кнопки
-    config.input[0].padtype = 1; // 1 = DEVICE_PAD6B
-    config.input[1].padtype = 1; // 1 = DEVICE_PAD6B
+    // КРИТИЧЕСКИЙ ФИКС: Принудительно сообщаем конфигу, что у нас 6-кнопочные геймпады
+    // Без этого io_init() будет эмулировать 3-кнопочные, и игра аппаратно не увидит X,Y,Z
+    for (int i = 0; i < 8; i++) {
+        config.input[i].padtype = DEVICE_PAD6B; 
+    }
 
     if (!load_rom((char*)rom_path.c_str())) {
         LOGE("Failed to load ROM");
@@ -170,10 +158,10 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
 
     audio_init(44100, 60.0);
     
-    input.system[0] = 1; // SYSTEM_GAMEPAD
-    input.system[1] = 1; // SYSTEM_GAMEPAD
-    input.dev[0] = 1;    // DEVICE_PAD6B
-    input.dev[1] = 1;    // DEVICE_PAD6B
+    input.system[0] = SYSTEM_GAMEPAD;
+    input.system[1] = SYSTEM_GAMEPAD;
+    input.dev[0] = DEVICE_PAD6B;
+    input.dev[1] = DEVICE_PAD6B;
 
     system_init();
 
@@ -195,7 +183,8 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
 void GenesisCore::runFrame() {
     if (!initialized) return;
 
-    // Эмулятор внутри сам вызовет libretro_input_state() через osd_input_update()
+    // system_frame_gen вызывает osd_input_update_internal, которая
+    // корректно заполняет input.pad[i] вызывая наш libretro_input_state
     system_frame_gen(0);
 
     int16_t temp_samples[2048];
