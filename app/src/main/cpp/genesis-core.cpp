@@ -80,9 +80,9 @@ static int16_t libretro_input_state(unsigned port, unsigned device, unsigned ind
             case 0:  return (pad >> 5) & 1;  // B (Retro B)
             case 8:  return (pad >> 6) & 1;  // C (Retro A)
             case 3:  return (pad >> 7) & 1;  // START
-            case 9:  return (pad >> 8) & 1;  // X (Retro L2)
-            case 10: return (pad >> 9) & 1;  // Y (Retro R2)
-            case 11: return (pad >> 10) & 1; // Z (Retro R3)
+            case 9:  return (pad >> 8) & 1;  // X (Retro L)
+            case 10: return (pad >> 9) & 1;  // Y (Retro X)
+            case 11: return (pad >> 10) & 1; // Z (Retro R)
             case 2:  return (pad >> 11) & 1; // MODE (Retro SELECT)
         }
     }
@@ -156,26 +156,10 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
 void GenesisCore::runFrame() {
     if (!initialized) return;
 
-    // Читаем кнопки из общего атомарного хранилища
-    for (int i = 0; i < 2; i++) {
-        unsigned int pad_mask = atomic_load(&g_android_pads[i]);
-        
-        uint16_t pad = 0;
-        if (pad_mask & (1 << 0))  pad |= INPUT_UP;
-        if (pad_mask & (1 << 1))  pad |= INPUT_DOWN;
-        if (pad_mask & (1 << 2))  pad |= INPUT_LEFT;
-        if (pad_mask & (1 << 3))  pad |= INPUT_RIGHT;
-        if (pad_mask & (1 << 4))  pad |= INPUT_A;
-        if (pad_mask & (1 << 5))  pad |= INPUT_B;
-        if (pad_mask & (1 << 6))  pad |= INPUT_C;
-        if (pad_mask & (1 << 7))  pad |= INPUT_START;
-        if (pad_mask & (1 << 8))  pad |= INPUT_X;
-        if (pad_mask & (1 << 9))  pad |= INPUT_Y;
-        if (pad_mask & (1 << 10)) pad |= INPUT_Z;
-        if (pad_mask & (1 << 11)) pad |= INPUT_MODE;
-        
-        input.pad[i] = pad;
-    }
+    // НЕ пишем в input.pad вручную!
+    // system_frame_gen() внутри вызывает osd_input_update(),
+    // которая через libretro_input_state() читает g_android_pads
+    // и сама заполняет input.pad[i] правильными значениями.
 
     system_frame_gen(0);
 
