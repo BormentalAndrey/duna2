@@ -45,14 +45,15 @@ int64_t core_fsize(void *stream) {
 
 GenesisCore* GenesisCore::s_instance = nullptr;
 
-static std::atomic<bool> g_player_buttons[2][8] = {};
+// Расширенный массив: 12 кнопок (UP, DOWN, LEFT, RIGHT, A, B, C, START, X, Y, Z, MODE)
+static std::atomic<bool> g_player_buttons[2][12] = {};
 
 static std::atomic<int> g_free_audio_buffers(4);
 static int16_t g_audio_buffer_pool[4][4096]; 
 static int g_next_audio_buffer = 0;
 
 static bool libretro_environ(unsigned cmd, void *data) {
-    if (cmd == 9) { // RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY
+    if (cmd == 9) {
         if (GenesisCore::s_instance && data) {
             const char** dir = (const char**)data;
             *dir = GenesisCore::s_instance->save_path.c_str();
@@ -67,18 +68,21 @@ static void libretro_audio(int16_t left, int16_t right) {}
 static size_t libretro_audio_batch(const int16_t *data, size_t frames) { return frames; }
 static void libretro_input_poll(void) {}
 
-// Опрашивается внутренним механизмом libretro.c
 static int16_t libretro_input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
-    if (port < 2 && device == 1) { // 1 = RETRO_DEVICE_JOYPAD
+    if (port < 2 && device == 1) {
         switch (id) {
-            case 4: return g_player_buttons[port][0].load() ? 1 : 0; // UP
-            case 5: return g_player_buttons[port][1].load() ? 1 : 0; // DOWN
-            case 6: return g_player_buttons[port][2].load() ? 1 : 0; // LEFT
-            case 7: return g_player_buttons[port][3].load() ? 1 : 0; // RIGHT
-            case 1: return g_player_buttons[port][4].load() ? 1 : 0; // Retro Y -> Genesis A
-            case 0: return g_player_buttons[port][5].load() ? 1 : 0; // Retro B -> Genesis B
-            case 8: return g_player_buttons[port][6].load() ? 1 : 0; // Retro A -> Genesis C
-            case 3: return g_player_buttons[port][7].load() ? 1 : 0; // START
+            case 4:  return g_player_buttons[port][0].load()  ? 1 : 0; // UP
+            case 5:  return g_player_buttons[port][1].load()  ? 1 : 0; // DOWN
+            case 6:  return g_player_buttons[port][2].load()  ? 1 : 0; // LEFT
+            case 7:  return g_player_buttons[port][3].load()  ? 1 : 0; // RIGHT
+            case 1:  return g_player_buttons[port][4].load()  ? 1 : 0; // A (Retro Y)
+            case 0:  return g_player_buttons[port][5].load()  ? 1 : 0; // B (Retro B)
+            case 8:  return g_player_buttons[port][6].load()  ? 1 : 0; // C (Retro A)
+            case 3:  return g_player_buttons[port][7].load()  ? 1 : 0; // START
+            case 9:  return g_player_buttons[port][8].load()  ? 1 : 0; // X (Retro L2)
+            case 10: return g_player_buttons[port][9].load()  ? 1 : 0; // Y (Retro R2)
+            case 11: return g_player_buttons[port][10].load() ? 1 : 0; // Z (Retro R3)
+            case 2:  return g_player_buttons[port][11].load() ? 1 : 0; // MODE (Retro SELECT)
         }
     }
     return 0;
@@ -126,12 +130,10 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
 
     audio_init(44100, 60.0);
     
-    // ВАЖНО: Инициализация ввода ДО сброса системы. 
-    // Это гарантирует, что эмулятор физически "подключит" геймпады к шине.
     input.system[0] = SYSTEM_GAMEPAD;
     input.system[1] = SYSTEM_GAMEPAD;
-    input.dev[0] = DEVICE_PAD3B; // 3-кнопочный геймпад стабильнее для Dune 2
-    input.dev[1] = DEVICE_PAD3B;
+    input.dev[0] = DEVICE_PAD6B;  // 6-кнопочный для X, Y, Z, MODE
+    input.dev[1] = DEVICE_PAD6B;
 
     system_init();
 
@@ -142,9 +144,7 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
     bitmap.data   = (uint8_t*)local_framebuffer;
     vdp_init();
 
-    // Сброс прочитает input.system и правильно настроит IO порты
     system_reset();
-
     initOpenSLES();
 
     initialized = true;
@@ -155,8 +155,24 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
 void GenesisCore::runFrame() {
     if (!initialized) return;
 
-    // Оригинальное ядро libretro.c само опросит libretro_input_state 
-    // и смаппит кнопки внутри этого вызова. Никаких хаков с массивами!
+    // Принудительно пишем кнопки в input.pad перед фреймом
+    for (int i = 0; i < 2; i++) {
+        uint16_t pad = 0;
+        if (g_player_buttons[i][0].load())  pad |= INPUT_UP;
+        if (g_player_buttons[i][1].load())  pad |= INPUT_DOWN;
+        if (g_player_buttons[i][2].load())  pad |= INPUT_LEFT;
+        if (g_player_buttons[i][3].load())  pad |= INPUT_RIGHT;
+        if (g_player_buttons[i][4].load())  pad |= INPUT_A;
+        if (g_player_buttons[i][5].load())  pad |= INPUT_B;
+        if (g_player_buttons[i][6].load())  pad |= INPUT_C;
+        if (g_player_buttons[i][7].load())  pad |= INPUT_START;
+        if (g_player_buttons[i][8].load())  pad |= INPUT_X;
+        if (g_player_buttons[i][9].load())  pad |= INPUT_Y;
+        if (g_player_buttons[i][10].load()) pad |= INPUT_Z;
+        if (g_player_buttons[i][11].load()) pad |= INPUT_MODE;
+        input.pad[i] = pad;
+    }
+
     system_frame_gen(0);
 
     int16_t temp_samples[2048];
@@ -223,7 +239,7 @@ void GenesisCore::render() {
 }
 
 void GenesisCore::setButton(int player, int button, bool pressed) {
-    if (player >= 0 && player <= 1 && button >= 0 && button < 8) {
+    if (player >= 0 && player <= 1 && button >= 0 && button < 12) {
         g_player_buttons[player][button].store(pressed);
     }
 }
