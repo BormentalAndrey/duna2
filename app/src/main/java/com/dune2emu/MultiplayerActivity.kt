@@ -14,6 +14,8 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.*
 import java.net.*
 
@@ -22,8 +24,14 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private lateinit var emulator: EmulatorCore
     private lateinit var surfaceView: SurfaceView
     private lateinit var gamepad: GamepadView
+    
     private var serverSocket: ServerSocket? = null
     private var clientSocket: Socket? = null
+    
+    // Единый поток для отправки кнопок и мьютекс для защиты от слияния пакетов
+    private var clientOutput: DataOutputStream? = null
+    private val outputMutex = Mutex()
+
     private var isHost = false
     private var playerIndex = 0
 
@@ -106,22 +114,24 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private suspend fun hostInputLoop() {
-        val input = DataInputStream(BufferedInputStream(clientSocket?.getInputStream()))
         try {
+            // Читаем из сокета клиента
+            val input = DataInputStream(BufferedInputStream(clientSocket?.getInputStream()))
             while (clientSocket?.isConnected == true) {
-                if (input.available() > 0) {
-                    val msg = input.readUTF()
-                    val parts = msg.split(",")
-                    if (parts.size == 3) {
-                        val button = parts[1].toInt()
-                        val pressed = parts[2] == "1"
-                        emulator.setRemoteButton(1, button, pressed)
-                    }
-                } else {
-                    delay(2)
+                // readUTF() сам дождется данных, не нужно использовать available()
+                val msg = input.readUTF()
+                val parts = msg.split(",")
+                if (parts.size == 3) {
+                    val button = parts[1].toInt()
+                    val pressed = parts[2] == "1"
+                    emulator.setRemoteButton(1, button, pressed)
                 }
             }
-        } catch (e: Exception) { Log.e(TAG, "Host input error", e) }
+        } catch (e: EOFException) {
+            Log.d(TAG, "Client disconnected normally")
+        } catch (e: Exception) { 
+            Log.e(TAG, "Host input error", e) 
+        }
     }
 
     private suspend fun hostVideoLoop() {
@@ -137,8 +147,10 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     output.writeInt(data.size)
                     output.write(data)
                     output.flush()
+                    
+                    bitmap.recycle() // Не забываем чистить память!
                 }
-                delay(16)
+                delay(16) // ~60 FPS
             }
         } catch (e: Exception) { Log.e(TAG, "Host video error", e) }
     }
@@ -151,6 +163,10 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 clientSocket = Socket(hostIp, PORT)
                 clientSocket?.tcpNoDelay = true
                 Log.d(TAG, "Connected to host!")
+                
+                // Инициализируем поток один раз при старте
+                clientOutput = DataOutputStream(BufferedOutputStream(clientSocket?.getOutputStream()))
+
                 withContext(Dispatchers.Main) {
                     Toast.makeText(this@MultiplayerActivity, "Connected!", Toast.LENGTH_SHORT).show()
                     gamepad.setEmulator(emulator, 1) { _, button, pressed ->
@@ -165,8 +181,8 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private suspend fun clientVideoLoop() {
-        val input = DataInputStream(BufferedInputStream(clientSocket?.getInputStream()))
         try {
+            val input = DataInputStream(BufferedInputStream(clientSocket?.getInputStream()))
             while (clientSocket?.isConnected == true) {
                 val size = input.readInt()
                 if (size > 0) {
@@ -178,20 +194,28 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         canvas.drawBitmap(bitmap, null, Rect(0, 0, canvas.width, canvas.height), paint)
                         surfaceView.holder.unlockCanvasAndPost(canvas)
                     }
+                    bitmap?.recycle() // Очищаем после отрисовки
                 }
             }
-        } catch (e: Exception) { Log.e(TAG, "Client video error", e) }
+        } catch (e: EOFException) {
+            Log.d(TAG, "Host disconnected normally")
+        } catch (e: Exception) { 
+            Log.e(TAG, "Client video error", e) 
+        }
     }
 
     private fun sendButtonToHost(buttonCode: Int, pressed: Boolean) {
+        // Корутина выполняется быстро и не закрывает сокет
         lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val msg = "1,$buttonCode,${if (pressed) 1 else 0}"
-                DataOutputStream(BufferedOutputStream(clientSocket?.getOutputStream())).use {
-                    it.writeUTF(msg)
-                    it.flush()
+            outputMutex.withLock { // Защита от перекрытия пакетов
+                try {
+                    val msg = "1,$buttonCode,${if (pressed) 1 else 0}"
+                    clientOutput?.writeUTF(msg)
+                    clientOutput?.flush()
+                } catch (e: Exception) { 
+                    Log.e(TAG, "Send error", e) 
                 }
-            } catch (e: Exception) { Log.e(TAG, "Send error", e) }
+            }
         }
     }
 
@@ -211,8 +235,10 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
     override fun surfaceDestroyed(holder: SurfaceHolder) {}
+    
     override fun onDestroy() {
         if (isHost) emulator.stop()
+        try { clientOutput?.close() } catch (e: Exception) {}
         try { serverSocket?.close() } catch (e: Exception) {}
         try { clientSocket?.close() } catch (e: Exception) {}
         super.onDestroy()
