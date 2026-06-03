@@ -1,4 +1,4 @@
-package com.mk3emu
+package com.dune2emu
 
 import android.os.Build
 import android.os.Bundle
