@@ -6,15 +6,18 @@
 #include <string>
 #include <thread>
 #include <mutex>
-#include <stdatomic.h> // Необходим для работы с g_android_pads
+#include <stdatomic.h>
 #include "genesis-core.hpp"
 
 #define LOG_TAG "Dune2Emu"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-// Глобальная переменная для управления вводом (определена здесь)
+// Глобальная переменная для ввода
 atomic_uint g_android_pads[2] = {0, 0};
+
+// Глобальный фреймбуфер для стриминга видео
+uint16_t local_framebuffer[320 * 240];
 
 static GenesisCore* g_emu = nullptr;
 static std::thread g_emu_thread;
@@ -70,7 +73,6 @@ Java_com_dune2emu_RetroBridge_setSurface(JNIEnv* env, jobject thiz, jobject surf
     return JNI_TRUE;
 }
 
-// Новый метод для передачи маски кнопок из Android
 JNIEXPORT void JNICALL
 Java_com_dune2emu_RetroBridge_updateAndroidPad(JNIEnv* env, jobject thiz, jint player, jint pads) {
     if (player >= 0 && player < 2) {
@@ -153,6 +155,22 @@ JNIEXPORT jboolean JNICALL
 Java_com_dune2emu_RetroBridge_loadState(JNIEnv* env, jobject thiz, jint slot) {
     std::lock_guard<std::mutex> lock(g_mutex);
     return g_emu ? g_emu->loadState(slot) : JNI_FALSE;
+}
+
+// ==================== СТРИМИНГ ВИДЕО ====================
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_dune2emu_RetroBridge_getVideoFrame(JNIEnv* env, jobject thiz) {
+    if (!g_emu) return nullptr;
+    
+    int frameSize = 320 * 240 * 2; // RGB565
+    jbyteArray result = env->NewByteArray(frameSize);
+    if (!result) return nullptr;
+    
+    // Копируем фреймбуфер в Java-массив
+    env->SetByteArrayRegion(result, 0, frameSize, (const jbyte*)local_framebuffer);
+    
+    return result;
 }
 
 } // extern "C"
