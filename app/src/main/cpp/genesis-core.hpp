@@ -8,6 +8,9 @@
 #include <SLES/OpenSLES.h>
 #include <SLES/OpenSLES_Android.h>
 
+// Глобальный фреймбуфер для стриминга видео (определён в emulator-bridge.cpp)
+extern uint16_t local_framebuffer[320 * 240];
+
 class GenesisCore {
 public:
     GenesisCore() = default;
@@ -27,8 +30,7 @@ public:
 private:
     bool initialized = false;
 
-    // Видео-буфер и OpenGL ресурсы
-    uint16_t local_framebuffer[320 * 240]; 
+    // OpenGL ресурсы
     GLuint program_id = 0;
     GLuint texture_id = 0;
     GLuint vbo_id = 0;
