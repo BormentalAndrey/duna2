@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.*
 import android.view.MotionEvent
 import android.view.View
+import kotlin.math.*
 
 class GamepadView(context: Context) : View(context) {
 
@@ -36,14 +37,27 @@ class GamepadView(context: Context) : View(context) {
         color = Color.WHITE
         setShadowLayer(6f, 0f, 0f, Color.CYAN)
     }
+    private val dpadLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+        color = Color.argb(60, 255, 255, 255)
+    }
 
     private data class GameButton(
         val rect: RectF, val label: String,
         val button: EmulatorCore.GenesisButton, val color: Int
     )
 
-    private val buttons = mutableListOf<GameButton>()
+    private val actionButtons = mutableListOf<GameButton>()
     private val pressedButtons = mutableSetOf<EmulatorCore.GenesisButton>()
+
+    // D-Pad круг
+    private var dpadCX = 0f
+    private var dpadCY = 0f
+    private var dpadR = 0f
+
+    // Касания для multi-touch
+    private val activePointers = mutableMapOf<Int, Pair<Float, Float>>()
 
     fun setEmulator(
         emu: EmulatorCore, playerIndex: Int = 0,
@@ -60,99 +74,145 @@ class GamepadView(context: Context) : View(context) {
     }
 
     private fun setupButtons(w: Float, h: Float) {
-        buttons.clear()
+        actionButtons.clear()
 
         val btnW = w * 0.07f
         val btnH = btnW
         val gap = w * 0.01f
 
-        // === D-PAD ===
-        val dpadCX = w * 0.16f
-        val dpadCY = h * 0.72f
-        val dpadR = w * 0.10f
-        val dW = dpadR * 0.6f
-        val dH = dpadR * 0.6f
+        // === D-PAD КРУГ ===
+        dpadCX = w * 0.16f
+        dpadCY = h * 0.72f
+        dpadR = w * 0.11f
 
-        buttons.add(GameButton(RectF(dpadCX - dW/2, dpadCY - dpadR - dH/2, dpadCX + dW/2, dpadCY - dpadR + dH/2), "▲", EmulatorCore.GenesisButton.UP, neonYellow))
-        buttons.add(GameButton(RectF(dpadCX - dW/2, dpadCY + dpadR - dH/2, dpadCX + dW/2, dpadCY + dpadR + dH/2), "▼", EmulatorCore.GenesisButton.DOWN, neonYellow))
-        buttons.add(GameButton(RectF(dpadCX - dpadR - dW/2, dpadCY - dH/2, dpadCX - dpadR + dW/2, dpadCY + dH/2), "◄", EmulatorCore.GenesisButton.LEFT, neonYellow))
-        buttons.add(GameButton(RectF(dpadCX + dpadR - dW/2, dpadCY - dH/2, dpadCX + dpadR + dW/2, dpadCY + dH/2), "►", EmulatorCore.GenesisButton.RIGHT, neonYellow))
-
-        // === БЛОК КНОПОК (правый край, 2 ряда × 3 колонки) ===
-        // Центр блока
+        // === КНОПКИ ДЕЙСТВИЙ ===
         val bx = w * 0.82f
         val by = h * 0.68f
-
-        // ВЕРХНИЙ РЯД: X, Y, Z
         val topY = by - btnH - gap * 2
-        buttons.add(GameButton(RectF(bx - btnW - gap, topY, bx - gap, topY + btnH), "X", EmulatorCore.GenesisButton.X, neonPink))
-        buttons.add(GameButton(RectF(bx, topY, bx + btnW, topY + btnH), "Y", EmulatorCore.GenesisButton.Y, neonOrange))
-        buttons.add(GameButton(RectF(bx + btnW + gap, topY, bx + btnW*2 + gap, topY + btnH), "Z", EmulatorCore.GenesisButton.Z, neonPurple))
-
-        // НИЖНИЙ РЯД: A, B, C
         val botY = by + gap * 2
-        buttons.add(GameButton(RectF(bx - btnW - gap, botY, bx - gap, botY + btnH), "A", EmulatorCore.GenesisButton.A, neonRed))
-        buttons.add(GameButton(RectF(bx, botY, bx + btnW, botY + btnH), "B", EmulatorCore.GenesisButton.B, neonBlue))
-        buttons.add(GameButton(RectF(bx + btnW + gap, botY, bx + btnW*2 + gap, botY + btnH), "C", EmulatorCore.GenesisButton.C, neonGreen))
 
-        // === START ===
-        buttons.add(GameButton(RectF(w/2 - btnW*1.2f, h - btnH*1.6f, w/2 + btnW*1.2f, h - btnH*0.5f), "START", EmulatorCore.GenesisButton.START, neonWhite))
-
-        // === MODE ===
-        buttons.add(GameButton(RectF(w/2 + btnW*1.4f, h - btnH*1.3f, w/2 + btnW*2.6f, h - btnH*0.6f), "MODE", EmulatorCore.GenesisButton.MODE, neonGray))
+        actionButtons.add(GameButton(RectF(bx - btnW - gap, topY, bx - gap, topY + btnH), "X", EmulatorCore.GenesisButton.X, neonPink))
+        actionButtons.add(GameButton(RectF(bx, topY, bx + btnW, topY + btnH), "Y", EmulatorCore.GenesisButton.Y, neonOrange))
+        actionButtons.add(GameButton(RectF(bx + btnW + gap, topY, bx + btnW*2 + gap, topY + btnH), "Z", EmulatorCore.GenesisButton.Z, neonPurple))
+        actionButtons.add(GameButton(RectF(bx - btnW - gap, botY, bx - gap, botY + btnH), "A", EmulatorCore.GenesisButton.A, neonRed))
+        actionButtons.add(GameButton(RectF(bx, botY, bx + btnW, botY + btnH), "B", EmulatorCore.GenesisButton.B, neonBlue))
+        actionButtons.add(GameButton(RectF(bx + btnW + gap, botY, bx + btnW*2 + gap, botY + btnH), "C", EmulatorCore.GenesisButton.C, neonGreen))
+        actionButtons.add(GameButton(RectF(w/2 - btnW*1.2f, h - btnH*1.6f, w/2 + btnW*1.2f, h - btnH*0.5f), "START", EmulatorCore.GenesisButton.START, neonWhite))
+        actionButtons.add(GameButton(RectF(w/2 + btnW*1.4f, h - btnH*1.3f, w/2 + btnW*2.6f, h - btnH*0.6f), "MODE", EmulatorCore.GenesisButton.MODE, neonGray))
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         canvas.drawColor(bgDark)
 
-        for (btn in buttons) {
+        // === D-PAD КРУГ ===
+        // Внешний круг
+        borderPaint.color = neonYellow
+        borderPaint.alpha = 50
+        borderPaint.strokeWidth = 2f
+        canvas.drawCircle(dpadCX, dpadCY, dpadR, borderPaint)
+
+        // Крест по диагонали
+        dpadLinePaint.color = Color.argb(60, 255, 255, 255)
+        canvas.drawLine(dpadCX - dpadR, dpadCY - dpadR, dpadCX + dpadR, dpadCY + dpadR, dpadLinePaint)
+        canvas.drawLine(dpadCX - dpadR, dpadCY + dpadR, dpadCX + dpadR, dpadCY - dpadR, dpadLinePaint)
+
+        // 4 сектора
+        drawDpadSector(canvas, EmulatorCore.GenesisButton.UP,    225f, 90f, "▲")
+        drawDpadSector(canvas, EmulatorCore.GenesisButton.DOWN,   45f, 90f, "▼")
+        drawDpadSector(canvas, EmulatorCore.GenesisButton.LEFT,  135f, 90f, "◄")
+        drawDpadSector(canvas, EmulatorCore.GenesisButton.RIGHT, 315f, 90f, "►")
+
+        // Центральный кружок
+        fillPaint.color = neonYellow
+        fillPaint.alpha = 15
+        canvas.drawCircle(dpadCX, dpadCY, dpadR * 0.15f, fillPaint)
+
+        // === КНОПКИ ДЕЙСТВИЙ ===
+        for (btn in actionButtons) {
             val pressed = pressedButtons.contains(btn.button)
             borderPaint.color = btn.color
             borderPaint.alpha = if (pressed) 255 else 70
             fillPaint.color = btn.color
             fillPaint.alpha = if (pressed) 50 else 10
-
             val rx = btn.rect.width() * 0.15f
             val ry = btn.rect.height() * 0.15f
             canvas.drawRoundRect(btn.rect, rx, ry, fillPaint)
             canvas.drawRoundRect(btn.rect, rx, ry, borderPaint)
-
             if (pressed) {
                 borderPaint.alpha = 30
                 borderPaint.strokeWidth = 6f
                 canvas.drawRoundRect(btn.rect, rx, ry, borderPaint)
                 borderPaint.strokeWidth = 3f
             }
-
             textPaint.color = if (pressed) Color.WHITE else Color.argb(160, 255, 255, 255)
             canvas.drawText(btn.label, btn.rect.centerX(), btn.rect.centerY() + textPaint.textSize / 3, textPaint)
         }
     }
 
+    private fun drawDpadSector(canvas: Canvas, button: EmulatorCore.GenesisButton, startAngle: Float, sweepAngle: Float, label: String) {
+        val pressed = pressedButtons.contains(button)
+        val path = Path().apply {
+            moveTo(dpadCX, dpadCY)
+            arcTo(dpadCX - dpadR, dpadCY - dpadR, dpadCX + dpadR, dpadCY + dpadR, startAngle, sweepAngle, false)
+            close()
+        }
+        fillPaint.color = neonYellow
+        fillPaint.alpha = if (pressed) 60 else 10
+        canvas.drawPath(path, fillPaint)
+        borderPaint.color = neonYellow
+        borderPaint.alpha = if (pressed) 255 else 60
+        borderPaint.strokeWidth = if (pressed) 3f else 1.5f
+        canvas.drawPath(path, borderPaint)
+
+        // Текст по центру сектора
+        val midAngle = Math.toRadians((startAngle + sweepAngle / 2).toDouble())
+        val textR = dpadR * 0.55f
+        val tx = dpadCX + (textR * cos(midAngle)).toFloat()
+        val ty = dpadCY + (textR * sin(midAngle)).toFloat()
+        textPaint.color = Color.argb(if (pressed) 255 else 120, 255, 255, 255)
+        canvas.drawText(label, tx, ty + textPaint.textSize / 3, textPaint)
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val newPressed = mutableSetOf<EmulatorCore.GenesisButton>()
-        val action = event.actionMasked
 
-        when (action) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_MOVE -> {
-                for (i in 0 until event.pointerCount) {
-                    val x = event.getX(i)
-                    val y = event.getY(i)
-                    for (btn in buttons) {
-                        if (btn.rect.contains(x, y)) newPressed.add(btn.button)
-                    }
-                }
+        // Обновляем активные касания
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                val idx = event.actionIndex
+                activePointers[idx] = Pair(event.getX(idx), event.getY(idx))
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
+                activePointers.remove(event.actionIndex)
+            }
+            MotionEvent.ACTION_MOVE -> {
                 for (i in 0 until event.pointerCount) {
-                    if (i == event.actionIndex) continue
-                    val x = event.getX(i)
-                    val y = event.getY(i)
-                    for (btn in buttons) {
-                        if (btn.rect.contains(x, y)) newPressed.add(btn.button)
-                    }
+                    activePointers[i] = Pair(event.getX(i), event.getY(i))
                 }
+            }
+        }
+
+        // Определяем нажатые кнопки по активным касаниям
+        for ((_, point) in activePointers) {
+            val (x, y) = point
+            val dx = x - dpadCX
+            val dy = y - dpadCY
+            val dist = sqrt(dx * dx + dy * dy)
+
+            if (dist <= dpadR * 1.2f && dist > dpadR * 0.12f) {
+                val angle = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
+                val btn = when {
+                    angle > -135 && angle <= -45 -> EmulatorCore.GenesisButton.UP
+                    angle > 45 && angle <= 135 -> EmulatorCore.GenesisButton.DOWN
+                    angle > -45 && angle <= 45 -> EmulatorCore.GenesisButton.RIGHT
+                    else -> EmulatorCore.GenesisButton.LEFT
+                }
+                newPressed.add(btn)
+            }
+
+            for (btn in actionButtons) {
+                if (btn.rect.contains(x, y)) newPressed.add(btn.button)
             }
         }
 
