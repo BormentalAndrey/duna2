@@ -1,6 +1,8 @@
 package com.dune2emu
 
+import android.graphics.Bitmap
 import android.view.Surface
+import java.nio.ByteBuffer
 
 class EmulatorCore {
     private val bridge = RetroBridge()
@@ -36,13 +38,25 @@ class EmulatorCore {
         bridge.setButtonState(player, button.code, false)
     }
     
-    // Для приёма кнопок от удалённого игрока (по коду)
     fun setRemoteButton(player: Int, buttonCode: Int, pressed: Boolean) {
         bridge.setButtonState(player, buttonCode, pressed)
     }
     
     fun saveState(slot: Int): Boolean = bridge.saveState(slot)
     fun loadState(slot: Int): Boolean = bridge.loadState(slot)
+    
+    // ==================== СТРИМИНГ ВИДЕО ====================
+    
+    /**
+     * Получить текущий кадр эмулятора как Bitmap.
+     * Используется хостом для отправки клиенту по сети.
+     */
+    fun getCurrentFrameBitmap(): Bitmap? {
+        val rawData = bridge.getVideoFrame() ?: return null
+        val bitmap = Bitmap.createBitmap(320, 240, Bitmap.Config.RGB_565)
+        bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(rawData))
+        return bitmap
+    }
     
     enum class GenesisButton(val code: Int) {
         UP(0), DOWN(1), LEFT(2), RIGHT(3),
