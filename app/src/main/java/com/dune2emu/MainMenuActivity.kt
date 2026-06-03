@@ -18,14 +18,14 @@ class MainMenuActivity : AppCompatActivity() {
         }
 
         val btnSingle = Button(this).apply {
-            text = "Single Player"
+            text = "Одиночная игра"
             setOnClickListener {
                 startActivity(Intent(this@MainMenuActivity, EmulatorActivity::class.java))
             }
         }
 
         val btnHost = Button(this).apply {
-            text = "Host Game (Player 1)"
+            text = "1 Джостик"
             setOnClickListener {
                 val intent = Intent(this@MainMenuActivity, MultiplayerActivity::class.java)
                 intent.putExtra("isHost", true)
@@ -34,7 +34,7 @@ class MainMenuActivity : AppCompatActivity() {
         }
 
         val btnJoin = Button(this).apply {
-            text = "Join Game (Player 2)"
+            text = "2 Джостик"
             setOnClickListener {
                 showJoinDialog()
             }
