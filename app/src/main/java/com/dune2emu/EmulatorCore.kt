@@ -36,6 +36,11 @@ class EmulatorCore {
         bridge.setButtonState(player, button.code, false)
     }
     
+    // Для приёма кнопок от удалённого игрока (по коду)
+    fun setRemoteButton(player: Int, buttonCode: Int, pressed: Boolean) {
+        bridge.setButtonState(player, buttonCode, pressed)
+    }
+    
     fun saveState(slot: Int): Boolean = bridge.saveState(slot)
     fun loadState(slot: Int): Boolean = bridge.loadState(slot)
     
