@@ -4011,5 +4011,3 @@ void retro_run(void)
 }
 
 #undef  CHUNKSIZE
-
-}
