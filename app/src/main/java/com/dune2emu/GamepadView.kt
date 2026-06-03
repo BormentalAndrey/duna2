@@ -2,7 +2,6 @@ package com.dune2emu
 
 import android.content.Context
 import android.graphics.*
-import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 
@@ -12,7 +11,6 @@ class GamepadView(context: Context) : View(context) {
     private var multiplayerCallback: ((Int, EmulatorCore.GenesisButton, Boolean) -> Unit)? = null
     private var localPlayerIndex: Int = 0
 
-    // === ТЕХПАНК НОЕН ПАЛИТРА ===
     private val neonYellow = Color.argb(200, 255, 255, 0)
     private val neonRed    = Color.argb(200, 255, 50, 50)
     private val neonBlue   = Color.argb(200, 50, 150, 255)
@@ -22,7 +20,7 @@ class GamepadView(context: Context) : View(context) {
     private val neonPurple = Color.argb(200, 180, 50, 255)
     private val neonWhite  = Color.argb(200, 200, 200, 255)
     private val neonGray   = Color.argb(150, 150, 150, 150)
-    private val bgDark     = Color.argb(80, 0, 0, 0)
+    private val bgDark     = Color.argb(60, 0, 0, 0)
 
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -32,11 +30,11 @@ class GamepadView(context: Context) : View(context) {
         style = Paint.Style.FILL
     }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = 18f
+        textSize = 16f
         textAlign = Paint.Align.CENTER
         typeface = Typeface.MONOSPACE
         color = Color.WHITE
-        setShadowLayer(8f, 0f, 0f, Color.CYAN)
+        setShadowLayer(6f, 0f, 0f, Color.CYAN)
     }
 
     private data class GameButton(
@@ -63,38 +61,45 @@ class GamepadView(context: Context) : View(context) {
 
     private fun setupButtons(w: Float, h: Float) {
         buttons.clear()
-        val btnSize = w * 0.08f
 
-        // === D-PAD (жёлтый) ===
-        val dpadCX = w * 0.18f
+        val btnW = w * 0.07f
+        val btnH = btnW
+        val gap = w * 0.01f
+
+        // === D-PAD ===
+        val dpadCX = w * 0.16f
         val dpadCY = h * 0.72f
-        val dpadR = w * 0.11f
-        val bW = dpadR * 0.65f
-        val bH = dpadR * 0.65f
+        val dpadR = w * 0.10f
+        val dW = dpadR * 0.6f
+        val dH = dpadR * 0.6f
 
-        buttons.add(GameButton(RectF(dpadCX - bW/2, dpadCY - dpadR - bH/2, dpadCX + bW/2, dpadCY - dpadR + bH/2), "▲", EmulatorCore.GenesisButton.UP, neonYellow))
-        buttons.add(GameButton(RectF(dpadCX - bW/2, dpadCY + dpadR - bH/2, dpadCX + bW/2, dpadCY + dpadR + bH/2), "▼", EmulatorCore.GenesisButton.DOWN, neonYellow))
-        buttons.add(GameButton(RectF(dpadCX - dpadR - bW/2, dpadCY - bH/2, dpadCX - dpadR + bW/2, dpadCY + bH/2), "◄", EmulatorCore.GenesisButton.LEFT, neonYellow))
-        buttons.add(GameButton(RectF(dpadCX + dpadR - bW/2, dpadCY - bH/2, dpadCX + dpadR + bW/2, dpadCY + bH/2), "►", EmulatorCore.GenesisButton.RIGHT, neonYellow))
+        buttons.add(GameButton(RectF(dpadCX - dW/2, dpadCY - dpadR - dH/2, dpadCX + dW/2, dpadCY - dpadR + dH/2), "▲", EmulatorCore.GenesisButton.UP, neonYellow))
+        buttons.add(GameButton(RectF(dpadCX - dW/2, dpadCY + dpadR - dH/2, dpadCX + dW/2, dpadCY + dpadR + dH/2), "▼", EmulatorCore.GenesisButton.DOWN, neonYellow))
+        buttons.add(GameButton(RectF(dpadCX - dpadR - dW/2, dpadCY - dH/2, dpadCX - dpadR + dW/2, dpadCY + dH/2), "◄", EmulatorCore.GenesisButton.LEFT, neonYellow))
+        buttons.add(GameButton(RectF(dpadCX + dpadR - dW/2, dpadCY - dH/2, dpadCX + dpadR + dW/2, dpadCY + dH/2), "►", EmulatorCore.GenesisButton.RIGHT, neonYellow))
 
-        // === A (красный), B (синий), C (зелёный) ===
-        val abcX = w * 0.82f
-        val abcY = h * 0.65f
-        buttons.add(GameButton(RectF(abcX, abcY, abcX + btnSize, abcY + btnSize), "A", EmulatorCore.GenesisButton.A, neonRed))
-        buttons.add(GameButton(RectF(abcX - btnSize*1.3f, abcY - btnSize*0.7f, abcX - btnSize*0.3f, abcY + btnSize*0.3f), "B", EmulatorCore.GenesisButton.B, neonBlue))
-        buttons.add(GameButton(RectF(abcX + btnSize*1.3f, abcY - btnSize*0.7f, abcX + btnSize*2.3f, abcY + btnSize*0.3f), "C", EmulatorCore.GenesisButton.C, neonGreen))
+        // === БЛОК КНОПОК (правый край, 2 ряда × 3 колонки) ===
+        // Центр блока
+        val bx = w * 0.82f
+        val by = h * 0.68f
 
-        // === X (розовый), Y (оранжевый), Z (фиолетовый) ===
-        val xyzY = abcY - btnSize * 1.6f
-        buttons.add(GameButton(RectF(abcX, xyzY, abcX + btnSize, xyzY + btnSize), "X", EmulatorCore.GenesisButton.X, neonPink))
-        buttons.add(GameButton(RectF(abcX - btnSize*1.3f, xyzY - btnSize*0.7f, abcX - btnSize*0.3f, xyzY + btnSize*0.3f), "Y", EmulatorCore.GenesisButton.Y, neonOrange))
-        buttons.add(GameButton(RectF(abcX + btnSize*1.3f, xyzY - btnSize*0.7f, abcX + btnSize*2.3f, xyzY + btnSize*0.3f), "Z", EmulatorCore.GenesisButton.Z, neonPurple))
+        // ВЕРХНИЙ РЯД: X, Y, Z
+        val topY = by - btnH - gap * 2
+        buttons.add(GameButton(RectF(bx - btnW - gap, topY, bx - gap, topY + btnH), "X", EmulatorCore.GenesisButton.X, neonPink))
+        buttons.add(GameButton(RectF(bx, topY, bx + btnW, topY + btnH), "Y", EmulatorCore.GenesisButton.Y, neonOrange))
+        buttons.add(GameButton(RectF(bx + btnW + gap, topY, bx + btnW*2 + gap, topY + btnH), "Z", EmulatorCore.GenesisButton.Z, neonPurple))
 
-        // === START (белый) ===
-        buttons.add(GameButton(RectF(w/2 - btnSize, h - btnSize*1.5f, w/2 + btnSize, h - btnSize*0.3f), "START", EmulatorCore.GenesisButton.START, neonWhite))
+        // НИЖНИЙ РЯД: A, B, C
+        val botY = by + gap * 2
+        buttons.add(GameButton(RectF(bx - btnW - gap, botY, bx - gap, botY + btnH), "A", EmulatorCore.GenesisButton.A, neonRed))
+        buttons.add(GameButton(RectF(bx, botY, bx + btnW, botY + btnH), "B", EmulatorCore.GenesisButton.B, neonBlue))
+        buttons.add(GameButton(RectF(bx + btnW + gap, botY, bx + btnW*2 + gap, botY + btnH), "C", EmulatorCore.GenesisButton.C, neonGreen))
 
-        // === MODE (серый) ===
-        buttons.add(GameButton(RectF(w/2 - btnSize*2.2f, h - btnSize*1.2f, w/2 - btnSize*0.8f, h - btnSize*0.5f), "MODE", EmulatorCore.GenesisButton.MODE, neonGray))
+        // === START ===
+        buttons.add(GameButton(RectF(w/2 - btnW*1.2f, h - btnH*1.6f, w/2 + btnW*1.2f, h - btnH*0.5f), "START", EmulatorCore.GenesisButton.START, neonWhite))
+
+        // === MODE ===
+        buttons.add(GameButton(RectF(w/2 + btnW*1.4f, h - btnH*1.3f, w/2 + btnW*2.6f, h - btnH*0.6f), "MODE", EmulatorCore.GenesisButton.MODE, neonGray))
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -104,23 +109,23 @@ class GamepadView(context: Context) : View(context) {
         for (btn in buttons) {
             val pressed = pressedButtons.contains(btn.button)
             borderPaint.color = btn.color
-            borderPaint.alpha = if (pressed) 255 else 80
+            borderPaint.alpha = if (pressed) 255 else 70
             fillPaint.color = btn.color
-            fillPaint.alpha = if (pressed) 60 else 15
+            fillPaint.alpha = if (pressed) 50 else 10
 
-            val rx = btn.rect.width() * 0.2f
-            val ry = btn.rect.height() * 0.2f
+            val rx = btn.rect.width() * 0.15f
+            val ry = btn.rect.height() * 0.15f
             canvas.drawRoundRect(btn.rect, rx, ry, fillPaint)
             canvas.drawRoundRect(btn.rect, rx, ry, borderPaint)
 
             if (pressed) {
-                borderPaint.alpha = 40
-                borderPaint.strokeWidth = 8f
+                borderPaint.alpha = 30
+                borderPaint.strokeWidth = 6f
                 canvas.drawRoundRect(btn.rect, rx, ry, borderPaint)
                 borderPaint.strokeWidth = 3f
             }
 
-            textPaint.color = if (pressed) Color.WHITE else Color.argb(180, 255, 255, 255)
+            textPaint.color = if (pressed) Color.WHITE else Color.argb(160, 255, 255, 255)
             canvas.drawText(btn.label, btn.rect.centerX(), btn.rect.centerY() + textPaint.textSize / 3, textPaint)
         }
     }
