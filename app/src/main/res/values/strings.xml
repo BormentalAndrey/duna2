@@ -6,4 +6,19 @@
     <string name="load_state">Load State</string>
     <string name="no_rom_found">No ROM found. Please select Dune 2 ROM file.</string>
     <string name="select_rom">Select ROM File</string>
+    
+    <!-- Main Menu -->
+    <string name="single_player">Single Player</string>
+    <string name="host_game">Host Game (Player 1)</string>
+    <string name="join_game">Join Game (Player 2)</string>
+    
+    <!-- Multiplayer -->
+    <string name="waiting_player2">Waiting for Player 2…</string>
+    <string name="player2_connected">Player 2 connected!</string>
+    <string name="connecting">Connecting…</string>
+    <string name="connected">Connected!</string>
+    <string name="connection_failed">Connection failed</string>
+    <string name="enter_host_ip">Enter host IP address</string>
+    <string name="connect">Connect</string>
+    <string name="cancel">Cancel</string>
 </resources>
