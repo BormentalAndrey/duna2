@@ -4,8 +4,23 @@ plugins {
 }
 
 android {
-    namespace 'com.dune2emu'
+    namespace 'com.mk3emu'
     compileSdk 35
+    
+    // ВАЖНО: Если вы переименовали пакет (рефакторинг), 
+    // убедитесь, что namespace выше тоже соответствует новому имени, если нужно.
+
+    // Настройка подписи для Release-сборки
+    signingConfigs {
+        release {
+            // Файл ключа лежит в папке app, поэтому путь file('my-release-key.jks') верен
+            storeFile file('my-release-key.jks')
+            // Замените на ваши реальные пароли
+            storePassword 'ВАШ_ПАРОЛЬ_ОТ_ХРАНИЛИЩА'
+            keyAlias 'ИМЯ_ВАШЕГО_КЛЮЧА'
+            keyPassword 'ВАШ_ПАРОЛЬ_ОТ_КЛЮЧА'
+        }
+    }
     
     defaultConfig {
         applicationId "com.mk3emu.emulator"
@@ -30,9 +45,13 @@ android {
     
     buildTypes {
         release {
-            minifyEnabled true
-            shrinkResources true
+            minifyEnabled true // Включает сжатие кода
+            shrinkResources true // Удаляет неиспользуемые ресурсы
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            
+            // Подключаем подпись, созданную выше
+            signingConfig signingConfigs.release
+            
             ndk {
                 debugSymbolLevel 'none'
             }
@@ -76,9 +95,6 @@ dependencies {
     implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
     implementation 'com.google.android.material:material:1.12.0'
     
-    // --- ДОБАВЛЕНО ДЛЯ РАБОТЫ EMULATORACTIVITY ---
-    // Корутины для асинхронной распаковки ROM-файла в фоновом потоке
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
-    // Lifecycle для привязки корутин к жизненному циклу Activity (lifecycleScope)
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.7'
 }
