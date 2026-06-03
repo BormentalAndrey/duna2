@@ -71,19 +71,39 @@ static void libretro_input_poll(void) {}
 static int16_t libretro_input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
     if (port < 2 && device == 1) {
         unsigned int pad = atomic_load(&g_android_pads[port]);
+        
+        // БИТОВАЯ МАСКА — для osd_input_update_internal_bitmasks()
+        if (id == RETRO_DEVICE_ID_JOYPAD_MASK) {
+            int16_t mask = 0;
+            if ((pad >> 0) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_UP);
+            if ((pad >> 1) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_DOWN);
+            if ((pad >> 2) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_LEFT);
+            if ((pad >> 3) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_RIGHT);
+            if ((pad >> 4) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_Y);     // A
+            if ((pad >> 5) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_B);     // B
+            if ((pad >> 6) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_A);     // C
+            if ((pad >> 7) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_START);
+            if ((pad >> 8) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_L);     // X
+            if ((pad >> 9) & 1)  mask |= (1 << RETRO_DEVICE_ID_JOYPAD_X);     // Y
+            if ((pad >> 10) & 1) mask |= (1 << RETRO_DEVICE_ID_JOYPAD_R);     // Z
+            if ((pad >> 11) & 1) mask |= (1 << RETRO_DEVICE_ID_JOYPAD_SELECT); // MODE
+            return mask;
+        }
+        
+        // Обычные отдельные кнопки
         switch (id) {
-            case 4:  return (pad >> 0) & 1;  // UP
-            case 5:  return (pad >> 1) & 1;  // DOWN
-            case 6:  return (pad >> 2) & 1;  // LEFT
-            case 7:  return (pad >> 3) & 1;  // RIGHT
-            case 1:  return (pad >> 4) & 1;  // A (Retro Y)
-            case 0:  return (pad >> 5) & 1;  // B (Retro B)
-            case 8:  return (pad >> 6) & 1;  // C (Retro A)
-            case 3:  return (pad >> 7) & 1;  // START
-            case 9:  return (pad >> 8) & 1;  // X (Retro L)
-            case 10: return (pad >> 9) & 1;  // Y (Retro X)
-            case 11: return (pad >> 10) & 1; // Z (Retro R)
-            case 2:  return (pad >> 11) & 1; // MODE (Retro SELECT)
+            case RETRO_DEVICE_ID_JOYPAD_UP:     return (pad >> 0) & 1;
+            case RETRO_DEVICE_ID_JOYPAD_DOWN:   return (pad >> 1) & 1;
+            case RETRO_DEVICE_ID_JOYPAD_LEFT:   return (pad >> 2) & 1;
+            case RETRO_DEVICE_ID_JOYPAD_RIGHT:  return (pad >> 3) & 1;
+            case RETRO_DEVICE_ID_JOYPAD_Y:      return (pad >> 4) & 1;  // A
+            case RETRO_DEVICE_ID_JOYPAD_B:      return (pad >> 5) & 1;  // B
+            case RETRO_DEVICE_ID_JOYPAD_A:      return (pad >> 6) & 1;  // C
+            case RETRO_DEVICE_ID_JOYPAD_START:  return (pad >> 7) & 1;
+            case RETRO_DEVICE_ID_JOYPAD_L:      return (pad >> 8) & 1;  // X
+            case RETRO_DEVICE_ID_JOYPAD_X:      return (pad >> 9) & 1;  // Y
+            case RETRO_DEVICE_ID_JOYPAD_R:      return (pad >> 10) & 1; // Z
+            case RETRO_DEVICE_ID_JOYPAD_SELECT: return (pad >> 11) & 1; // MODE
         }
     }
     return 0;
@@ -155,11 +175,6 @@ bool GenesisCore::init(const std::string& rom_path, const std::string& save_dir)
 
 void GenesisCore::runFrame() {
     if (!initialized) return;
-
-    // НЕ пишем в input.pad вручную!
-    // system_frame_gen() внутри вызывает osd_input_update(),
-    // которая через libretro_input_state() читает g_android_pads
-    // и сама заполняет input.pad[i] правильными значениями.
 
     system_frame_gen(0);
 
