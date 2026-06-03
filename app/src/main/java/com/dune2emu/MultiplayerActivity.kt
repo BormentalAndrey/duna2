@@ -1,6 +1,9 @@
 package com.dune2emu
 
+import android.content.Context
+import android.net.wifi.WifiManager
 import android.os.Bundle
+import android.text.format.Formatter
 import android.util.Log
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -48,14 +51,44 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
         else startClient()
     }
 
+    private fun getLocalIpAddress(): String {
+        try {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            val ip = wifiManager.connectionInfo.ipAddress
+            if (ip != 0) {
+                return Formatter.formatIpAddress(ip)
+            }
+            // Fallback: enumerate network interfaces
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val ni = interfaces.nextElement()
+                val addresses = ni.inetAddresses
+                while (addresses.hasMoreElements()) {
+                    val addr = addresses.nextElement()
+                    if (!addr.isLoopbackAddress && addr is Inet4Address) {
+                        return addr.hostAddress ?: "Unknown"
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Get IP error", e)
+        }
+        return "Unknown"
+    }
+
     private fun startHost() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 serverSocket = ServerSocket(PORT)
+                val ip = getLocalIpAddress()
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MultiplayerActivity, "Waiting for Player 2...\nPort: $PORT", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        this@MultiplayerActivity,
+                        "Your IP: $ip\nPort: $PORT\nTell Player 2 this IP",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
-                Log.d(TAG, "Host waiting on port $PORT...")
+                Log.d(TAG, "Host waiting on $ip:$PORT...")
                 clientSocket = serverSocket?.accept()
                 Log.d(TAG, "Client connected!")
                 withContext(Dispatchers.Main) {
@@ -91,7 +124,6 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     Toast.makeText(this@MultiplayerActivity, "Connected to host!", Toast.LENGTH_SHORT).show()
                 }
                 startGame()
-                sendMyInput()
             } catch (e: Exception) {
                 Log.e(TAG, "Client error", e)
                 withContext(Dispatchers.Main) {
@@ -106,9 +138,7 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val saveDir = File(filesDir, "saves").apply { mkdirs() }
 
         if (emulator.init(romPath, saveDir.absolutePath)) {
-            // Используем новый метод setEmulator с callback
             gamepad.setEmulator(emulator, playerIndex) { player, button, pressed ->
-                // Отправляем свои кнопки удалённому игроку
                 sendInputToRemote(player, button.code, pressed)
             }
             emulator.start()
@@ -151,7 +181,6 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         val buttonCode = parts[1].toInt()
                         val pressed = parts[2] == "1"
                         withContext(Dispatchers.Main) {
-                            // Применяем кнопки удалённого игрока
                             emulator.setRemoteButton(remotePlayer, buttonCode, pressed)
                         }
                     }
@@ -162,17 +191,12 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
     }
 
-    private suspend fun sendMyInput() {
-        // Клиент постоянно слушает свой геймпад (коллбэк уже настроен в startGame)
-        // и отправляет кнопки хосту через sendInputToRemote
-    }
-
     override fun surfaceCreated(holder: SurfaceHolder) {
         emulator.setSurface(holder.surface)
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
-    
+
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         emulator.stop()
     }
