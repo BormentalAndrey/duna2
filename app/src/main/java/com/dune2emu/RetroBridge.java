@@ -12,4 +12,7 @@ public class RetroBridge {
     public native void setButtonState(int player, int button, boolean pressed);
     public native boolean saveState(int slot);
     public native boolean loadState(int slot);
+    
+    // Стриминг видео
+    public native byte[] getVideoFrame();
 }
