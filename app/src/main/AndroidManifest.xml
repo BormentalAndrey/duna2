@@ -16,7 +16,7 @@
 
     <application
         android:allowBackup="true"
-        android:label="Dune 2 Emulator"
+        android:label="Мортал Комбат 3"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
