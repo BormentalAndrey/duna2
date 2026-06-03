@@ -6,11 +6,15 @@
 #include <string>
 #include <thread>
 #include <mutex>
+#include <stdatomic.h> // Необходим для работы с g_android_pads
 #include "genesis-core.hpp"
 
 #define LOG_TAG "Dune2Emu"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+// Глобальная переменная для управления вводом (определена здесь)
+atomic_uint g_android_pads[2] = {0, 0};
 
 static GenesisCore* g_emu = nullptr;
 static std::thread g_emu_thread;
@@ -64,6 +68,14 @@ Java_com_dune2emu_RetroBridge_setSurface(JNIEnv* env, jobject thiz, jobject surf
     
     eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     return JNI_TRUE;
+}
+
+// Новый метод для передачи маски кнопок из Android
+JNIEXPORT void JNICALL
+Java_com_dune2emu_RetroBridge_updateAndroidPad(JNIEnv* env, jobject thiz, jint player, jint pads) {
+    if (player >= 0 && player < 2) {
+        atomic_store(&g_android_pads[player], (unsigned int)pads);
+    }
 }
 
 JNIEXPORT void JNICALL
