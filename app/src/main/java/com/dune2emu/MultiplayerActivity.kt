@@ -25,6 +25,7 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private var clientSocket: Socket? = null
     private var isHost = false
     private var playerIndex = 0
+    private var syncJob: Job? = null
 
     private val TAG = "Multiplayer"
     private val PORT = 12345
@@ -47,18 +48,14 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
         isHost = intent.getBooleanExtra("isHost", true)
         playerIndex = if (isHost) 0 else 1
 
-        if (isHost) startHost()
-        else startClient()
+        if (isHost) startHost() else startClient()
     }
 
     private fun getLocalIpAddress(): String {
         try {
             val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
             val ip = wifiManager.connectionInfo.ipAddress
-            if (ip != 0) {
-                return Formatter.formatIpAddress(ip)
-            }
-            // Fallback: enumerate network interfaces
+            if (ip != 0) return Formatter.formatIpAddress(ip)
             val interfaces = NetworkInterface.getNetworkInterfaces()
             while (interfaces.hasMoreElements()) {
                 val ni = interfaces.nextElement()
@@ -82,25 +79,18 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 serverSocket = ServerSocket(PORT)
                 val ip = getLocalIpAddress()
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(
-                        this@MultiplayerActivity,
-                        "Your IP: $ip\nPort: $PORT\nTell Player 2 this IP",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    Toast.makeText(this@MultiplayerActivity, "Your IP: $ip\nPort: $PORT", Toast.LENGTH_LONG).show()
                 }
-                Log.d(TAG, "Host waiting on $ip:$PORT...")
                 clientSocket = serverSocket?.accept()
                 Log.d(TAG, "Client connected!")
                 withContext(Dispatchers.Main) {
                     Toast.makeText(this@MultiplayerActivity, "Player 2 connected!", Toast.LENGTH_SHORT).show()
                 }
                 startGame()
-                readRemoteInput()
+                // Host: эмулирует и отправляет сейвстейты
+                runHostSyncLoop()
             } catch (e: Exception) {
                 Log.e(TAG, "Host error", e)
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MultiplayerActivity, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-                }
             }
         }
     }
@@ -108,27 +98,17 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun startClient() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val hostIp = intent.getStringExtra("hostIp")
-                if (hostIp.isNullOrEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MultiplayerActivity, "No host IP provided", Toast.LENGTH_LONG).show()
-                    }
-                    return@launch
-                }
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MultiplayerActivity, "Connecting to $hostIp...", Toast.LENGTH_SHORT).show()
-                }
+                val hostIp = intent.getStringExtra("hostIp") ?: return@launch
                 clientSocket = Socket(hostIp, PORT)
                 Log.d(TAG, "Connected to host!")
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MultiplayerActivity, "Connected to host!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MultiplayerActivity, "Connected!", Toast.LENGTH_SHORT).show()
                 }
                 startGame()
+                // Client: получает сейвстейты и рендерит, отправляет кнопки
+                runClientSyncLoop()
             } catch (e: Exception) {
                 Log.e(TAG, "Client error", e)
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MultiplayerActivity, "Connection failed: ${e.message}", Toast.LENGTH_LONG).show()
-                }
             }
         }
     }
@@ -147,6 +127,91 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
     }
 
+    // ==================== HOST SYNC LOOP ====================
+    private suspend fun runHostSyncLoop() {
+        withContext(Dispatchers.IO) {
+            try {
+                val output = DataOutputStream(BufferedOutputStream(clientSocket?.getOutputStream()))
+                val input = DataInputStream(BufferedInputStream(clientSocket?.getInputStream()))
+                val stateFile = File(filesDir, "sync.state")
+
+                while (clientSocket?.isConnected == true) {
+                    // 1. Читаем кнопки клиента (неблокирующе)
+                    if (input.available() > 0) {
+                        val msg = input.readUTF()
+                        val parts = msg.split(",")
+                        if (parts.size == 3) {
+                            val player = parts[0].toInt()
+                            val button = parts[1].toInt()
+                            val pressed = parts[2] == "1"
+                            withContext(Dispatchers.Main) {
+                                emulator.setRemoteButton(player, button, pressed)
+                            }
+                        }
+                    }
+
+                    // 2. Сохраняем сейвстейт
+                    withContext(Dispatchers.Main) {
+                        emulator.saveState(0)
+                    }
+
+                    // 3. Отправляем сейвстейт клиенту
+                    if (stateFile.exists()) {
+                        val data = stateFile.readBytes()
+                        output.writeInt(data.size)
+                        output.write(data)
+                        output.flush()
+                    }
+
+                    Thread.sleep(16) // ~60 FPS
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Host sync error: ${e.message}")
+            }
+        }
+    }
+
+    // ==================== CLIENT SYNC LOOP ====================
+    private suspend fun runClientSyncLoop() {
+        withContext(Dispatchers.IO) {
+            try {
+                val input = DataInputStream(BufferedInputStream(clientSocket?.getInputStream()))
+                val output = DataOutputStream(BufferedOutputStream(clientSocket?.getOutputStream()))
+                val stateFile = File(filesDir, "sync.state")
+
+                while (clientSocket?.isConnected == true) {
+                    // 1. Получаем сейвстейт от хоста
+                    val size = input.readInt()
+                    val data = ByteArray(size)
+                    input.readFully(data)
+                    stateFile.writeBytes(data)
+
+                    // 2. Загружаем сейвстейт (клиент не эмулирует сам!)
+                    withContext(Dispatchers.Main) {
+                        emulator.loadState(0)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Client sync error: ${e.message}")
+            }
+        }
+    }
+
+    // ==================== ОТПРАВКА КНОПОК ====================
+    private fun sendInputToRemote(player: Int, buttonCode: Int, pressed: Boolean) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val msg = "$player,$buttonCode,${if (pressed) 1 else 0}"
+                val output = DataOutputStream(clientSocket?.getOutputStream())
+                output.writeUTF(msg)
+                output.flush()
+            } catch (e: Exception) {
+                Log.e(TAG, "Send error: ${e.message}")
+            }
+        }
+    }
+
+    // ==================== ROM ====================
     private fun extractRom(): String {
         val outFile = File(filesDir, "dune2.gen")
         if (!outFile.exists()) {
@@ -157,51 +222,17 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
         return outFile.absolutePath
     }
 
-    private fun sendInputToRemote(player: Int, buttonCode: Int, pressed: Boolean) {
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val data = "$player,$buttonCode,${if (pressed) 1 else 0}\n"
-                clientSocket?.getOutputStream()?.write(data.toByteArray())
-                clientSocket?.getOutputStream()?.flush()
-            } catch (e: Exception) {
-                Log.e(TAG, "Send error", e)
-            }
-        }
-    }
-
-    private fun readRemoteInput() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val reader = BufferedReader(InputStreamReader(clientSocket?.getInputStream()))
-                while (true) {
-                    val line = reader.readLine() ?: break
-                    val parts = line.split(",")
-                    if (parts.size == 3) {
-                        val remotePlayer = parts[0].toInt()
-                        val buttonCode = parts[1].toInt()
-                        val pressed = parts[2] == "1"
-                        withContext(Dispatchers.Main) {
-                            emulator.setRemoteButton(remotePlayer, buttonCode, pressed)
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Read error", e)
-            }
-        }
-    }
-
+    // ==================== SURFACE ====================
     override fun surfaceCreated(holder: SurfaceHolder) {
         emulator.setSurface(holder.surface)
     }
-
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
-
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         emulator.stop()
     }
 
     override fun onDestroy() {
+        syncJob?.cancel()
         emulator.stop()
         try { serverSocket?.close() } catch (e: Exception) {}
         try { clientSocket?.close() } catch (e: Exception) {}
