@@ -46,6 +46,7 @@ class EmulatorCore {
     
     enum class GenesisButton(val code: Int) {
         UP(0), DOWN(1), LEFT(2), RIGHT(3),
-        A(4), B(5), C(6), START(7), MODE(8)
+        A(4), B(5), C(6), START(7),
+        X(8), Y(9), Z(10), MODE(11)
     }
 }
