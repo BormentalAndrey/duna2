@@ -7,18 +7,15 @@ android {
     namespace 'com.mk3emu'
     compileSdk 35
     
-    // ВАЖНО: Если вы переименовали пакет (рефакторинг), 
-    // убедитесь, что namespace выше тоже соответствует новому имени, если нужно.
-
-    // Настройка подписи для Release-сборки
     signingConfigs {
         release {
-            // Файл ключа лежит в папке app, поэтому путь file('my-release-key.jks') верен
+            // Файл ключа должен лежать в папке app
             storeFile file('my-release-key.jks')
-            // Замените на ваши реальные пароли
-            storePassword 'ВАШ_ПАРОЛЬ_ОТ_ХРАНИЛИЩА'
-            keyAlias 'ИМЯ_ВАШЕГО_КЛЮЧА'
-            keyPassword 'ВАШ_ПАРОЛЬ_ОТ_КЛЮЧА'
+            
+            // Используем переменные окружения для защиты паролей
+            storePassword System.getenv('MYAPP_RELEASE_STORE_PASSWORD')
+            keyAlias 'my-alias'
+            keyPassword System.getenv('MYAPP_RELEASE_KEY_PASSWORD')
         }
     }
     
@@ -45,11 +42,11 @@ android {
     
     buildTypes {
         release {
-            minifyEnabled true // Включает сжатие кода
-            shrinkResources true // Удаляет неиспользуемые ресурсы
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             
-            // Подключаем подпись, созданную выше
+            // Автоматическое использование настроек подписи
             signingConfig signingConfigs.release
             
             ndk {
