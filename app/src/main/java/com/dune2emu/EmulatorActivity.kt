@@ -162,6 +162,12 @@ class EmulatorActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     override fun onPause() {
         super.onPause()
+        
+        // ИСПРАВЛЕНИЕ: Отпускаем все кнопки перед уходом в фон
+        if (::gamepad.isInitialized) {
+            gamepad.resetButtons()
+        }
+        
         // Хорошая практика: приостанавливать эмуляцию, если пользователь свернул приложение
         emulator.stop()
     }
