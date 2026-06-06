@@ -55,6 +55,7 @@ class GamepadView(context: Context) : View(context) {
     private var dpadCY = 0f
     private var dpadR = 0f
 
+    // Здесь теперь ключом выступает уникальный PointerId, а не меняющийся Index
     private val activePointers = mutableMapOf<Int, Pair<Float, Float>>()
 
     fun setEmulator(
@@ -165,20 +166,25 @@ class GamepadView(context: Context) : View(context) {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val newPressed = mutableSetOf<EmulatorCore.GenesisButton>()
 
+        // ИСПРАВЛЕНИЕ: Используем getPointerId вместо actionIndex
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 val idx = event.actionIndex
-                activePointers[idx] = Pair(event.getX(idx), event.getY(idx))
+                val id = event.getPointerId(idx)
+                activePointers[id] = Pair(event.getX(idx), event.getY(idx))
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
-                activePointers.remove(event.actionIndex)
+                val idx = event.actionIndex
+                val id = event.getPointerId(idx)
+                activePointers.remove(id)
             }
             MotionEvent.ACTION_CANCEL -> {
                 activePointers.clear()
             }
             MotionEvent.ACTION_MOVE -> {
                 for (i in 0 until event.pointerCount) {
-                    activePointers[i] = Pair(event.getX(i), event.getY(i))
+                    val id = event.getPointerId(i)
+                    activePointers[id] = Pair(event.getX(i), event.getY(i))
                 }
             }
         }
@@ -258,5 +264,16 @@ class GamepadView(context: Context) : View(context) {
         pressedButtons.addAll(newPressed)
         invalidate()
         return true
+    }
+
+    // ИСПРАВЛЕНИЕ: Добавлен метод принудительного отпускания всех кнопок
+    fun resetButtons() {
+        activePointers.clear()
+        for (btn in pressedButtons) {
+            emulator?.releaseButton(localPlayerIndex, btn)
+            multiplayerCallback?.invoke(localPlayerIndex, btn, false)
+        }
+        pressedButtons.clear()
+        invalidate()
     }
 }
