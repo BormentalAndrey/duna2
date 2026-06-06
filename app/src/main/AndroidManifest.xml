@@ -16,7 +16,7 @@
 
     <application
         android:allowBackup="true"
-        android:label="Мортал Комбат 3"
+        android:label="Черепашки ниндзя"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
