@@ -3,6 +3,7 @@ package com.dune2emu
 import android.content.Context
 import android.graphics.*
 import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.Bundle
 import android.text.format.Formatter
 import android.util.Log
@@ -12,6 +13,9 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
@@ -41,8 +45,9 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
-        supportActionBar?.hide()
+        
+        // Применяем современный полноэкранный режим
+        setupFullScreen()
 
         val layout = FrameLayout(this)
         surfaceView = SurfaceView(this)
@@ -58,6 +63,24 @@ class MultiplayerActivity : AppCompatActivity(), SurfaceHolder.Callback {
         playerIndex = if (isHost) 0 else 1
 
         if (isHost) startHost() else startClient()
+    }
+
+    private fun setupFullScreen() {
+        supportActionBar?.hide()
+
+        // Разрешаем отрисовку под вырезом камеры (челкой)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+
+        // Современный способ скрытия системных панелей
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            // Скрываем И статус-бар, И панель навигации (кнопки внизу)
+            hide(WindowInsetsCompat.Type.systemBars())
+            // Поведение: панели появляются при свайпе от края и сами исчезают
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
     }
 
     private fun getLocalIpAddress(): String {
