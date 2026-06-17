@@ -20,7 +20,7 @@ android {
     }
     
     defaultConfig {
-        applicationId "com.cn1emu.emulator"
+        applicationId "com.dn2emu.emulator"
         minSdk 21
         targetSdk 35
         versionCode 1
