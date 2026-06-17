@@ -16,7 +16,7 @@
 
     <application
         android:allowBackup="true"
-        android:label="Черепашки ниндзя"
+        android:label="Дюна 2"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
